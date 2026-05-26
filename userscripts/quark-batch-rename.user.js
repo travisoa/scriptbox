@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.1.7
+// @version      0.1.8
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -316,16 +316,18 @@
         right: 18px;
         top: 92px;
         z-index: 2147483000;
-        width: 360px;
+        width: 376px;
         max-height: calc(100vh - 120px);
         overflow: auto;
-        border: 1px solid #d7dbe7;
-        border-radius: 8px;
+        box-sizing: border-box;
+        border: 1px solid rgba(210, 216, 230, .95);
+        border-radius: 12px;
         background: #fff;
-        box-shadow: 0 16px 40px rgba(20, 26, 40, .18);
+        box-shadow: 0 18px 42px rgba(22, 28, 45, .16);
         color: #1f2430;
         font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
+      #${PANEL_ID} * { box-sizing: border-box; }
       #${PANEL_ID}.qbr-collapsed {
         width: 48px;
         min-height: 48px;
@@ -333,16 +335,29 @@
         border-radius: 12px;
       }
       #${PANEL_ID}.qbr-collapsed .qbr-body { display: none; }
+      #${PANEL_ID}.qbr-collapsed .qbr-heading { display: none; }
       #${PANEL_ID} .qbr-head {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
-        padding: 8px;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
         border-bottom: 1px solid #edf0f6;
+        background: #fbfcff;
       }
       #${PANEL_ID}.qbr-collapsed .qbr-head {
         padding: 0;
         border-bottom: 0;
+        background: transparent;
+      }
+      #${PANEL_ID} .qbr-heading {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        color: #1f2430;
+        font-size: 14px;
+        font-weight: 700;
       }
       #${PANEL_ID} .qbr-toggle {
         display: flex;
@@ -361,35 +376,84 @@
         flex: 0 0 auto;
       }
       #${PANEL_ID}.qbr-collapsed .qbr-icon { width: 28px; height: 28px; }
-      #${PANEL_ID} .qbr-body { padding: 12px; }
-      #${PANEL_ID} label { display: block; margin: 8px 0 4px; color: #4f5668; }
+      #${PANEL_ID} .qbr-close { font-size: 18px; line-height: 1; color: #687084; }
+      #${PANEL_ID}.qbr-collapsed .qbr-close { display: none; }
+      #${PANEL_ID}.qbr-collapsed .qbr-toggle .qbr-icon { display: block; }
+      #${PANEL_ID} .qbr-toggle .qbr-icon { display: none; }
+      #${PANEL_ID} .qbr-body { padding: 14px; }
+      #${PANEL_ID} label {
+        display: block;
+        margin: 10px 0 5px;
+        color: #4b5568;
+        font-size: 12px;
+        font-weight: 650;
+      }
       #${PANEL_ID} input, #${PANEL_ID} select {
-        box-sizing: border-box;
         width: 100%;
-        height: 32px;
-        border: 1px solid #cfd5e3;
-        border-radius: 6px;
-        padding: 0 8px;
+        height: 34px;
+        border: 1px solid #d3d9e6;
+        border-radius: 8px;
+        background: #fff;
+        color: #1f2430;
+        padding: 0 10px;
         outline: none;
       }
-      #${PANEL_ID} .qbr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      #${PANEL_ID} .qbr-actions { display: flex; gap: 8px; margin-top: 12px; }
+      #${PANEL_ID} input:focus, #${PANEL_ID} select:focus {
+        border-color: #3b6dff;
+        box-shadow: 0 0 0 3px rgba(59, 109, 255, .12);
+      }
+      #${PANEL_ID} input::placeholder { color: #9aa3b4; }
+      #${PANEL_ID} .qbr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      #${PANEL_ID} .qbr-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1.1fr;
+        gap: 8px;
+        margin-top: 14px;
+      }
       #${PANEL_ID} button {
-        height: 32px;
-        border: 1px solid #cfd5e3;
-        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        height: 34px;
+        border: 1px solid #d3d9e6;
+        border-radius: 8px;
         background: #fff;
         color: #1f2430;
         cursor: pointer;
+        font: inherit;
+        font-weight: 650;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
+        transition: background .12s ease, border-color .12s ease, box-shadow .12s ease, transform .12s ease;
       }
-      #${PANEL_ID} button.qbr-primary { background: #245bff; border-color: #245bff; color: #fff; }
-      #${PANEL_ID} .qbr-actions button { flex: 1; }
-      #${PANEL_ID} .qbr-status { margin-top: 10px; color: #5a6272; white-space: pre-wrap; }
-      #${PANEL_ID} .qbr-preview { margin-top: 10px; max-height: 260px; overflow: auto; border-top: 1px solid #edf0f6; }
-      #${PANEL_ID} table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      #${PANEL_ID} th, #${PANEL_ID} td { padding: 6px 4px; border-bottom: 1px solid #f0f2f7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #${PANEL_ID} th { color: #5a6272; font-weight: 600; text-align: left; }
-      #${PANEL_ID} .qbr-warn { margin: 8px 0; color: #b45309; white-space: pre-wrap; }
+      #${PANEL_ID} button:hover { background: #f6f8fc; border-color: #bfc7d8; }
+      #${PANEL_ID} button:active { transform: translateY(1px); }
+      #${PANEL_ID} button:disabled { cursor: not-allowed; opacity: .62; transform: none; }
+      #${PANEL_ID} button.qbr-primary { background: #245bff; border-color: #245bff; color: #fff; box-shadow: 0 6px 14px rgba(36, 91, 255, .22); }
+      #${PANEL_ID} button.qbr-primary:hover { background: #174deb; border-color: #174deb; }
+      #${PANEL_ID} .qbr-status {
+        margin-top: 12px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: #f6f8fc;
+        color: #566074;
+        white-space: pre-wrap;
+      }
+      #${PANEL_ID} .qbr-preview {
+        margin-top: 12px;
+        max-height: 260px;
+        overflow: auto;
+        border: 1px solid #edf0f6;
+        border-radius: 8px;
+      }
+      #${PANEL_ID} .qbr-preview:empty { display: none; }
+      #${PANEL_ID} table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+      #${PANEL_ID} th, #${PANEL_ID} td { padding: 8px 8px; border-bottom: 1px solid #f0f2f7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #${PANEL_ID} th { background: #f8faff; color: #5a6272; font-weight: 700; text-align: left; }
+      #${PANEL_ID} tbody tr:last-child td { border-bottom: 0; }
+      #${PANEL_ID} .qbr-warn { margin: 8px; color: #b45309; white-space: pre-wrap; }
     `;
     document.head.appendChild(style);
   }
@@ -402,8 +466,13 @@
     panel.className = "qbr-collapsed";
     panel.innerHTML = `
       <div class="qbr-head">
+        <div class="qbr-heading">
+          <img class="qbr-icon" src="${ROBOT_ICON}" alt="" />
+          <span>批量重命名</span>
+        </div>
         <button type="button" class="qbr-toggle" data-keep-enabled="1" title="打开/收起批量重命名">
           <img class="qbr-icon" src="${ROBOT_ICON}" alt="" />
+          <span class="qbr-close">×</span>
         </button>
       </div>
       <div class="qbr-body">
