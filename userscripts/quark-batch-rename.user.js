@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.1.10
+// @version      0.2.0
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
-// @icon         data:image/png;base64,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
+// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMyNDViZmYiLz48cmVjdCB4PSIxNCIgeT0iMTIiIHdpZHRoPSIyOCIgaGVpZ2h0PSIzNiIgcng9IjMiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSIxOSIgeT0iMjAiIHdpZHRoPSIxOCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMjYiIHdpZHRoPSIxNCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMzIiIHdpZHRoPSIxOCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMzgiIHdpZHRoPSIxMCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cGF0aCBkPSJNMzYgMzhMNTIgMjJMNTcgMjdMNDEgNDNMMzQgNDRaIiBmaWxsPSIjZmZkMzRhIiBzdHJva2U9IiMxZDRkZDYiIHN0cm9rZS13aWR0aD0iMS40Ii8+PC9zdmc+
 // @homepageURL  https://github.com/travisoa/scriptbox
 // @downloadURL  https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js
 // @updateURL    https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js
@@ -18,10 +18,12 @@
   "use strict";
 
   const PANEL_ID = "codex-quark-batch-rename";
-  const PANEL_TOP_KEY = "codex-quark-batch-rename-top";
-  const DEFAULT_PANEL_TOP = 168;
-  const MIN_PANEL_TOP = 132;
-  const ROBOT_ICON = (typeof GM_info !== "undefined" && GM_info.script && (GM_info.script.icon || GM_info.script.icon64)) || "data:image/png;base64,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";
+  const PANEL_POS_KEY = "codex-quark-batch-rename-pos";
+  const PANEL_LEGACY_TOP_KEY = "codex-quark-batch-rename-top";
+  const PANEL_MARGIN = 12;
+  const DEFAULT_BOTTOM_OFFSET = 96;
+  const COLLAPSED_SIZE = 44;
+  const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><rect width="64" height="64" rx="16" fill="#245bff"/><rect x="14" y="12" width="28" height="36" rx="3" fill="#fff"/><rect x="19" y="20" width="18" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="26" width="14" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="32" width="18" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="38" width="10" height="2" rx="1" fill="#3b6dff" opacity=".55"/><path d="M36 38L52 22L57 27L41 43L34 44Z" fill="#ffd34a" stroke="#1d4dd6" stroke-width="1.4" stroke-linejoin="round"/><path d="M49 25L54 30" stroke="#1d4dd6" stroke-width="1.4" stroke-linecap="round"/></svg>`;
   const VIDEO_EXT_RE = /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|rmvb)$/i;
 
   const state = {
@@ -311,49 +313,94 @@
     }[ch]));
   }
 
-  function clampPanelTop(panel, top) {
-    const margin = 12;
+  function panelSize(panel) {
+    if (panel.classList.contains("qbr-collapsed")) {
+      return { width: COLLAPSED_SIZE, height: COLLAPSED_SIZE };
+    }
     const rect = panel.getBoundingClientRect();
-    const height = panel.classList.contains("qbr-collapsed") ? 44 : Math.min(rect.height || 44, window.innerHeight - margin * 2);
-    const minTop = Math.min(MIN_PANEL_TOP, Math.max(margin, window.innerHeight - height - margin));
-    return Math.min(Math.max(top, minTop), Math.max(margin, window.innerHeight - height - margin));
+    return {
+      width: Math.min(rect.width || 376, window.innerWidth - PANEL_MARGIN * 2),
+      height: Math.min(rect.height || 44, window.innerHeight - PANEL_MARGIN * 2),
+    };
   }
 
-  function setPanelTop(panel, top, shouldSave = false) {
-    const nextTop = clampPanelTop(panel, top);
-    panel.style.top = `${Math.round(nextTop)}px`;
-    if (shouldSave) localStorage.setItem(PANEL_TOP_KEY, String(Math.round(nextTop)));
+  function computeDefaultPos(panel) {
+    const { width, height } = panelSize(panel);
+    return {
+      left: Math.max(PANEL_MARGIN, window.innerWidth - width - PANEL_MARGIN),
+      top: Math.max(PANEL_MARGIN, window.innerHeight - height - DEFAULT_BOTTOM_OFFSET),
+    };
   }
 
-  function restorePanelTop(panel) {
-    const saved = Number(localStorage.getItem(PANEL_TOP_KEY));
-    setPanelTop(panel, Number.isFinite(saved) ? saved : DEFAULT_PANEL_TOP);
+  function clampPanelPos(panel, pos) {
+    const { width, height } = panelSize(panel);
+    const maxLeft = Math.max(PANEL_MARGIN, window.innerWidth - width - PANEL_MARGIN);
+    const maxTop = Math.max(PANEL_MARGIN, window.innerHeight - height - PANEL_MARGIN);
+    return {
+      left: Math.min(Math.max(pos.left, PANEL_MARGIN), maxLeft),
+      top: Math.min(Math.max(pos.top, PANEL_MARGIN), maxTop),
+    };
+  }
+
+  function setPanelPos(panel, pos, shouldSave = false) {
+    const next = clampPanelPos(panel, pos);
+    panel.style.left = `${Math.round(next.left)}px`;
+    panel.style.top = `${Math.round(next.top)}px`;
+    if (shouldSave) {
+      try {
+        localStorage.setItem(PANEL_POS_KEY, JSON.stringify({ left: Math.round(next.left), top: Math.round(next.top) }));
+      } catch {}
+    }
+  }
+
+  function readSavedPos() {
+    try {
+      const raw = localStorage.getItem(PANEL_POS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) return parsed;
+      }
+    } catch {}
+    const legacyTop = Number(localStorage.getItem(PANEL_LEGACY_TOP_KEY));
+    if (Number.isFinite(legacyTop)) {
+      try { localStorage.removeItem(PANEL_LEGACY_TOP_KEY); } catch {}
+    }
+    return null;
+  }
+
+  function restorePanelPos(panel) {
+    setPanelPos(panel, readSavedPos() || computeDefaultPos(panel));
   }
 
   function keepPanelInViewport(panel) {
-    setPanelTop(panel, panel.getBoundingClientRect().top, panel.classList.contains("qbr-collapsed"));
+    const rect = panel.getBoundingClientRect();
+    setPanelPos(panel, { left: rect.left, top: rect.top }, panel.classList.contains("qbr-collapsed"));
   }
 
   function bindPanelDrag(panel) {
     const toggle = panel.querySelector(".qbr-toggle");
     let drag = null;
 
-    const startDrag = (clientY) => {
+    const startDrag = (clientX, clientY) => {
+      const rect = panel.getBoundingClientRect();
       drag = {
+        startX: clientX,
         startY: clientY,
-        startTop: panel.getBoundingClientRect().top,
+        startLeft: rect.left,
+        startTop: rect.top,
         moved: false,
       };
       panel.classList.add("qbr-dragging");
     };
 
-    const moveDrag = (clientY, event) => {
+    const moveDrag = (clientX, clientY, event) => {
       if (!drag) return;
-      const deltaY = clientY - drag.startY;
-      if (Math.abs(deltaY) > 3) drag.moved = true;
+      const dx = clientX - drag.startX;
+      const dy = clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
       if (drag.moved) {
         event.preventDefault();
-        setPanelTop(panel, drag.startTop + deltaY);
+        setPanelPos(panel, { left: drag.startLeft + dx, top: drag.startTop + dy });
       }
     };
 
@@ -362,28 +409,27 @@
       panel.classList.remove("qbr-dragging");
       if (drag.moved) {
         panel.dataset.dragged = "1";
-        setPanelTop(panel, panel.getBoundingClientRect().top, true);
-        setTimeout(() => {
-          delete panel.dataset.dragged;
-        }, 150);
+        const rect = panel.getBoundingClientRect();
+        setPanelPos(panel, { left: rect.left, top: rect.top }, true);
+        setTimeout(() => { delete panel.dataset.dragged; }, 150);
       }
       drag = null;
     };
 
     toggle.addEventListener("mousedown", (event) => {
       if (event.button !== 0) return;
-      startDrag(event.clientY);
+      startDrag(event.clientX, event.clientY);
     });
-    document.addEventListener("mousemove", (event) => moveDrag(event.clientY, event));
+    document.addEventListener("mousemove", (event) => moveDrag(event.clientX, event.clientY, event));
     document.addEventListener("mouseup", finishDrag);
 
     toggle.addEventListener("touchstart", (event) => {
       if (!event.touches.length) return;
-      startDrag(event.touches[0].clientY);
+      startDrag(event.touches[0].clientX, event.touches[0].clientY);
     }, { passive: true });
     document.addEventListener("touchmove", (event) => {
       if (!event.touches.length) return;
-      moveDrag(event.touches[0].clientY, event);
+      moveDrag(event.touches[0].clientX, event.touches[0].clientY, event);
     }, { passive: false });
     document.addEventListener("touchend", finishDrag);
     document.addEventListener("touchcancel", finishDrag);
@@ -394,8 +440,8 @@
     style.textContent = `
       #${PANEL_ID} {
         position: fixed;
-        right: 18px;
-        top: 168px;
+        left: 0;
+        top: 0;
         z-index: 2147483000;
         width: 376px;
         max-height: calc(100vh - 120px);
@@ -464,10 +510,14 @@
       #${PANEL_ID} .qbr-icon {
         width: 24px;
         height: 24px;
-        border-radius: 6px;
         flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
       }
-      #${PANEL_ID}.qbr-collapsed .qbr-icon { width: 26px; height: 26px; border-radius: 999px; }
+      #${PANEL_ID} .qbr-icon svg { width: 100%; height: 100%; display: block; }
+      #${PANEL_ID}.qbr-collapsed .qbr-icon { width: 28px; height: 28px; }
       #${PANEL_ID} .qbr-close { font-size: 18px; line-height: 1; color: #687084; }
       #${PANEL_ID}.qbr-collapsed .qbr-close { display: none; }
       #${PANEL_ID}.qbr-collapsed .qbr-toggle .qbr-icon { display: block; }
@@ -559,11 +609,11 @@
     panel.innerHTML = `
       <div class="qbr-head">
         <div class="qbr-heading">
-          <img class="qbr-icon" src="${ROBOT_ICON}" alt="" />
+          <span class="qbr-icon">${ICON_SVG}</span>
           <span>批量重命名</span>
         </div>
-        <button type="button" class="qbr-toggle" data-keep-enabled="1" title="打开/收起批量重命名">
-          <img class="qbr-icon" src="${ROBOT_ICON}" alt="" />
+        <button type="button" class="qbr-toggle" data-keep-enabled="1" title="拖拽移动 / 点击展开收起">
+          <span class="qbr-icon">${ICON_SVG}</span>
           <span class="qbr-close">×</span>
         </button>
       </div>
@@ -608,7 +658,7 @@
       </div>
     `;
     document.body.appendChild(panel);
-    restorePanelTop(panel);
+    restorePanelPos(panel);
     bindPanelDrag(panel);
     window.addEventListener("resize", () => keepPanelInViewport(panel));
     panel.querySelector(".qbr-toggle").addEventListener("click", (event) => {
