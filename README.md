@@ -1,10 +1,14 @@
-# Quark Batch Rename Helper
+# ScriptBox
 
-一个用于夸克网盘网页端的 Tampermonkey 用户脚本，为文件列表添加轻量批量重命名工具。
+一个收纳实用脚本的小项目。当前包含夸克网盘网页端的 Tampermonkey 批量重命名脚本，后续可以继续补充更多浏览器脚本、自动化脚本和小工具。
 
-这个脚本由 Codex 为夸克网盘批量整理视频文件名的实际工作流完成。
+当前首个脚本由 Codex 为夸克网盘批量整理视频文件名的实际工作流完成。
 
-## 功能
+## 脚本
+
+### Quark Batch Rename Helper
+
+路径：`userscripts/quark-batch-rename.user.js`
 
 - 右上角机器人图标入口，点击后展开批量重命名面板
 - 支持已勾选可见视频、当前目录全部视频等文件来源
@@ -15,7 +19,8 @@
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开 `quark-batch-rename.user.js` 的 raw 地址。
+2. 打开脚本 raw 地址：
+   `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js`
 3. 在 Tampermonkey 安装页点击安装或更新。
 4. 打开 `https://pan.quark.cn/`，页面右上角会出现机器人图标。
 
