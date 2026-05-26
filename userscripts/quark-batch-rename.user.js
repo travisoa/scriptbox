@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.1.6
+// @version      0.1.7
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -170,6 +170,13 @@
         .replace(/\s{2,}/g, " ");
       return cleaned;
     }
+    if (op === "cnEpisode") {
+      const season = getValue("season").trim().replace(/^0+/, "") || "1";
+      const seasonText = season.padStart(2, "0");
+      return fileName.replace(/第0*(\d{1,3})集/g, (_match, episode) => (
+        `S${seasonText}E${episode.padStart(2, "0")}`
+      ));
+    }
     if (op === "episode") {
       const show = getValue("showName").trim();
       const m = stem.match(/S(\d{1,2})E(\d{1,3})/i);
@@ -183,6 +190,7 @@
     const op = getValue("operation");
     if (op === "prefix" && !getValue("prefix").trim()) return "请先填写要添加的前缀";
     if (op === "regex" && !getValue("regexFrom").trim()) return "请先填写 From 正则";
+    if (op === "cnEpisode" && !/^(?:0?[1-9]|[1-9]\d)$/.test(getValue("season").trim())) return "请填写 1-99 的季号";
     if (op === "episode" && !getValue("showName").trim()) return "请先填写剧名";
     return "";
   }
@@ -410,6 +418,7 @@
           <option value="prefix">添加前缀</option>
           <option value="regex">正则替换</option>
           <option value="removeEnglish">删除英文剧名</option>
+          <option value="cnEpisode">中文集数转 SxxExx</option>
           <option value="episode">整理为 剧名.SxxExx</option>
         </select>
         <label>前缀</label>
@@ -424,6 +433,8 @@
             <input name="regexTo" value="" placeholder="示例：雨霖铃" />
           </div>
         </div>
+        <label>季号</label>
+        <input name="season" value="" placeholder="示例：1" />
         <label>剧名</label>
         <input name="showName" value="" placeholder="示例：仁心俱乐部" />
         <div class="qbr-actions">
