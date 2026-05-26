@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.1.8
+// @version      0.1.9
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -18,6 +18,7 @@
   "use strict";
 
   const PANEL_ID = "codex-quark-batch-rename";
+  const PANEL_TOP_KEY = "codex-quark-batch-rename-top";
   const ROBOT_ICON = (typeof GM_info !== "undefined" && GM_info.script && (GM_info.script.icon || GM_info.script.icon64)) || "data:image/png;base64,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";
   const VIDEO_EXT_RE = /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|rmvb)$/i;
 
@@ -308,6 +309,68 @@
     }[ch]));
   }
 
+  function clampPanelTop(panel, top) {
+    const margin = 12;
+    const rect = panel.getBoundingClientRect();
+    const height = panel.classList.contains("qbr-collapsed") ? 44 : Math.min(rect.height || 44, window.innerHeight - margin * 2);
+    return Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - height - margin));
+  }
+
+  function setPanelTop(panel, top, shouldSave = false) {
+    const nextTop = clampPanelTop(panel, top);
+    panel.style.top = `${Math.round(nextTop)}px`;
+    if (shouldSave) localStorage.setItem(PANEL_TOP_KEY, String(Math.round(nextTop)));
+  }
+
+  function restorePanelTop(panel) {
+    const saved = Number(localStorage.getItem(PANEL_TOP_KEY));
+    if (Number.isFinite(saved)) setPanelTop(panel, saved);
+  }
+
+  function keepPanelInViewport(panel) {
+    setPanelTop(panel, panel.getBoundingClientRect().top, panel.classList.contains("qbr-collapsed"));
+  }
+
+  function bindPanelDrag(panel) {
+    const toggle = panel.querySelector(".qbr-toggle");
+    let drag = null;
+    toggle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      drag = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startTop: panel.getBoundingClientRect().top,
+        moved: false,
+      };
+      panel.classList.add("qbr-dragging");
+      if (toggle.setPointerCapture) toggle.setPointerCapture(event.pointerId);
+    });
+    toggle.addEventListener("pointermove", (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const deltaY = event.clientY - drag.startY;
+      if (Math.abs(deltaY) > 3) drag.moved = true;
+      if (drag.moved) {
+        event.preventDefault();
+        setPanelTop(panel, drag.startTop + deltaY);
+      }
+    });
+    const finishDrag = (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      panel.classList.remove("qbr-dragging");
+      if (toggle.releasePointerCapture) toggle.releasePointerCapture(event.pointerId);
+      if (drag.moved) {
+        panel.dataset.dragged = "1";
+        setPanelTop(panel, panel.getBoundingClientRect().top, true);
+        setTimeout(() => {
+          delete panel.dataset.dragged;
+        }, 150);
+      }
+      drag = null;
+    };
+    toggle.addEventListener("pointerup", finishDrag);
+    toggle.addEventListener("pointercancel", finishDrag);
+  }
+
   function injectStyle() {
     const style = document.createElement("style");
     style.textContent = `
@@ -329,10 +392,12 @@
       }
       #${PANEL_ID} * { box-sizing: border-box; }
       #${PANEL_ID}.qbr-collapsed {
-        width: 48px;
-        min-height: 48px;
+        width: 44px;
+        min-height: 44px;
         overflow: visible;
-        border-radius: 12px;
+        border-radius: 999px;
+        border-color: rgba(221, 226, 238, .9);
+        box-shadow: 0 10px 24px rgba(22, 28, 45, .18);
       }
       #${PANEL_ID}.qbr-collapsed .qbr-body { display: none; }
       #${PANEL_ID}.qbr-collapsed .qbr-heading { display: none; }
@@ -368,14 +433,23 @@
         padding: 0;
         border-radius: 8px;
       }
-      #${PANEL_ID}.qbr-collapsed .qbr-toggle { width: 48px; height: 48px; border: 0; border-radius: 12px; }
+      #${PANEL_ID}.qbr-collapsed .qbr-toggle {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: 999px;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+      #${PANEL_ID}.qbr-dragging .qbr-toggle { cursor: grabbing; }
       #${PANEL_ID} .qbr-icon {
         width: 24px;
         height: 24px;
         border-radius: 6px;
         flex: 0 0 auto;
       }
-      #${PANEL_ID}.qbr-collapsed .qbr-icon { width: 28px; height: 28px; }
+      #${PANEL_ID}.qbr-collapsed .qbr-icon { width: 26px; height: 26px; border-radius: 999px; }
       #${PANEL_ID} .qbr-close { font-size: 18px; line-height: 1; color: #687084; }
       #${PANEL_ID}.qbr-collapsed .qbr-close { display: none; }
       #${PANEL_ID}.qbr-collapsed .qbr-toggle .qbr-icon { display: block; }
@@ -516,7 +590,19 @@
       </div>
     `;
     document.body.appendChild(panel);
-    panel.querySelector(".qbr-toggle").addEventListener("click", () => panel.classList.toggle("qbr-collapsed"));
+    restorePanelTop(panel);
+    bindPanelDrag(panel);
+    window.addEventListener("resize", () => keepPanelInViewport(panel));
+    panel.querySelector(".qbr-toggle").addEventListener("click", (event) => {
+      if (panel.dataset.dragged === "1") {
+        event.preventDefault();
+        event.stopPropagation();
+        delete panel.dataset.dragged;
+        return;
+      }
+      panel.classList.toggle("qbr-collapsed");
+      requestAnimationFrame(() => keepPanelInViewport(panel));
+    });
     panel.querySelector(".qbr-load").addEventListener("click", () => loadFiles().catch((error) => renderStatus(error.message)));
     panel.querySelector(".qbr-preview-btn").addEventListener("click", async () => {
       try {
