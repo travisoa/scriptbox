@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.2.1
+// @version      0.3.0
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -20,6 +20,8 @@
   const PANEL_ID = "codex-quark-batch-rename";
   const PANEL_POS_KEY = "codex-quark-batch-rename-pos";
   const PANEL_LEGACY_TOP_KEY = "codex-quark-batch-rename-top";
+  const FORM_KEY = "codex-quark-batch-rename-form";
+  const FORM_FIELDS = ["source", "operation", "prefix", "regexFrom", "regexTo", "season", "showName"];
   const PANEL_MARGIN = 12;
   const DEFAULT_BOTTOM_OFFSET = 96;
   const COLLAPSED_SIZE = 44;
@@ -29,6 +31,7 @@
   const state = {
     files: [],
     preview: [],
+    duplicates: [],
     busy: false,
   };
 
@@ -194,7 +197,13 @@
   function validateRule() {
     const op = getValue("operation");
     if (op === "prefix" && !getValue("prefix").trim()) return "请先填写要添加的前缀";
-    if (op === "regex" && !getValue("regexFrom").trim()) return "请先填写 From 正则";
+    if (op === "regex") {
+      const from = getValue("regexFrom").trim();
+      if (!from) return "请先填写 From 正则";
+      try { new RegExp(from, "g"); } catch (error) {
+        return `From 正则格式错误：${error.message}`;
+      }
+    }
     if (op === "cnEpisode" && !/^(?:0?[1-9]|[1-9]\d)$/.test(getValue("season").trim())) return "请填写 1-99 的季号";
     if (op === "episode" && !getValue("showName").trim()) return "请先填写剧名";
     return "";
@@ -204,6 +213,7 @@
     const ruleWarning = validateRule();
     if (ruleWarning) {
       state.preview = [];
+      state.duplicates = [];
       renderStatus(ruleWarning);
       renderPreview();
       return state.preview;
@@ -218,6 +228,7 @@
       if (names.has(item.new_name)) duplicates.push(item.new_name);
       names.add(item.new_name);
     }
+    state.duplicates = duplicates;
     renderPreview(duplicates);
     return state.preview;
   }
@@ -250,6 +261,10 @@
         renderStatus("没有需要改名的文件");
         return;
       }
+      if (state.duplicates.length) {
+        renderStatus(`存在 ${state.duplicates.length} 个重复新文件名，请调整规则后再执行`);
+        return;
+      }
       if (!confirm(`确认重命名 ${preview.length} 个文件？`)) return;
       let ok = 0;
       const failed = [];
@@ -264,9 +279,8 @@
           failed.push(`${item.file_name}: ${error.message}`);
         }
       }
-      renderStatus(failed.length ? `完成 ${ok} 个，失败 ${failed.length} 个` : `完成 ${ok} 个文件`);
-      renderPreview([], failed);
-      if (!failed.length) setTimeout(() => location.reload(), 1000);
+      renderStatus(failed.length ? `完成 ${ok} 个，失败 ${failed.length} 个` : `全部完成 ${ok} 个文件`);
+      renderPreview(state.duplicates, failed);
     } finally {
       state.busy = false;
       setBusy(false);
@@ -276,6 +290,39 @@
   function getValue(name) {
     const el = document.querySelector(`#${PANEL_ID} [name="${name}"]`);
     return el ? el.value : "";
+  }
+
+  function readFormValues() {
+    try {
+      const raw = localStorage.getItem(FORM_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch { return {}; }
+  }
+
+  function writeFormValues() {
+    const data = {};
+    FORM_FIELDS.forEach((name) => { data[name] = getValue(name); });
+    try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch {}
+  }
+
+  function restoreFormValues(panel) {
+    const saved = readFormValues();
+    FORM_FIELDS.forEach((name) => {
+      if (saved[name] == null) return;
+      const el = panel.querySelector(`[name="${name}"]`);
+      if (el) el.value = saved[name];
+    });
+  }
+
+  function bindFormPersistence(panel) {
+    FORM_FIELDS.forEach((name) => {
+      const el = panel.querySelector(`[name="${name}"]`);
+      if (!el) return;
+      const evt = el.tagName === "SELECT" ? "change" : "input";
+      el.addEventListener(evt, writeFormValues);
+    });
   }
 
   function setBusy(isBusy) {
@@ -659,6 +706,8 @@
     `;
     document.body.appendChild(panel);
     restorePanelPos(panel);
+    restoreFormValues(panel);
+    bindFormPersistence(panel);
     bindPanelDrag(panel);
     window.addEventListener("resize", () => keepPanelInViewport(panel));
     panel.querySelector(".qbr-toggle").addEventListener("click", (event) => {
