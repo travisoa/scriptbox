@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -420,8 +420,16 @@
   }
 
   function keepPanelInViewport(panel) {
-    const rect = panel.getBoundingClientRect();
-    setPanelPos(panel, { left: rect.left, top: rect.top }, panel.classList.contains("qbr-collapsed"));
+    // Collapsed: always snap back to the user's last dragged (saved) position,
+    // so expanding/collapsing never overwrites it with the expanded-clamp pos.
+    // Expanded: just clamp current position into the viewport without saving.
+    if (panel.classList.contains("qbr-collapsed")) {
+      const saved = readSavedPos();
+      setPanelPos(panel, saved || computeDefaultPos(panel));
+    } else {
+      const rect = panel.getBoundingClientRect();
+      setPanelPos(panel, { left: rect.left, top: rect.top });
+    }
   }
 
   function bindPanelDrag(panel) {
