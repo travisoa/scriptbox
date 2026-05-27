@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.2.0
+// @version      0.2.1
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -23,7 +23,7 @@
   const PANEL_MARGIN = 12;
   const DEFAULT_BOTTOM_OFFSET = 96;
   const COLLAPSED_SIZE = 44;
-  const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><rect width="64" height="64" rx="16" fill="#245bff"/><rect x="14" y="12" width="28" height="36" rx="3" fill="#fff"/><rect x="19" y="20" width="18" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="26" width="14" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="32" width="18" height="2" rx="1" fill="#3b6dff" opacity=".55"/><rect x="19" y="38" width="10" height="2" rx="1" fill="#3b6dff" opacity=".55"/><path d="M36 38L52 22L57 27L41 43L34 44Z" fill="#ffd34a" stroke="#1d4dd6" stroke-width="1.4" stroke-linejoin="round"/><path d="M49 25L54 30" stroke="#1d4dd6" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  const ICON_SVG = `<img src="https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/flower.svg" alt="" style="width:100%;height:100%;display:block;pointer-events:none" />`;
   const VIDEO_EXT_RE = /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|rmvb)$/i;
 
   const state = {
