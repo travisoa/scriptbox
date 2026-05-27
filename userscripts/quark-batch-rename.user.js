@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.3
+// @version      0.4.0
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -321,7 +321,17 @@
       const el = panel.querySelector(`[name="${name}"]`);
       if (!el) return;
       const evt = el.tagName === "SELECT" ? "change" : "input";
-      el.addEventListener(evt, writeFormValues);
+      el.addEventListener(evt, () => {
+        writeFormValues();
+        if (name === "operation") syncFieldVisibility(panel);
+      });
+    });
+  }
+
+  function syncFieldVisibility(panel) {
+    const op = getValue("operation");
+    panel.querySelectorAll(".qbr-field").forEach((el) => {
+      el.classList.toggle("is-active", el.dataset.for === op);
     });
   }
 
@@ -600,6 +610,17 @@
         box-shadow: 0 0 0 3px rgba(59, 109, 255, .12);
       }
       #${PANEL_ID} input::placeholder { color: #9aa3b4; }
+      #${PANEL_ID} .qbr-field { display: none; }
+      #${PANEL_ID} .qbr-field.is-active { display: block; }
+      #${PANEL_ID} .qbr-help {
+        margin-top: 12px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: #f6f8fc;
+        color: #566074;
+        font-size: 12px;
+        line-height: 1.55;
+      }
       #${PANEL_ID} .qbr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       #${PANEL_ID} .qbr-actions {
         display: grid;
@@ -687,22 +708,33 @@
           <option value="cnEpisode">中文集数转 SxxExx</option>
           <option value="episode">整理为 剧名.SxxExx</option>
         </select>
-        <label>前缀</label>
-        <input name="prefix" value="" placeholder="示例：雨霖铃" />
-        <div class="qbr-grid">
-          <div>
-            <label>From 正则</label>
-            <input name="regexFrom" value="" placeholder="示例：^" />
-          </div>
-          <div>
-            <label>To 替换</label>
-            <input name="regexTo" value="" placeholder="示例：雨霖铃" />
+        <div class="qbr-field" data-for="prefix">
+          <label>前缀</label>
+          <input name="prefix" value="" placeholder="示例：雨霖铃" />
+        </div>
+        <div class="qbr-field" data-for="regex">
+          <div class="qbr-grid">
+            <div>
+              <label>From 正则</label>
+              <input name="regexFrom" value="" placeholder="示例：^" />
+            </div>
+            <div>
+              <label>To 替换</label>
+              <input name="regexTo" value="" placeholder="示例：雨霖铃" />
+            </div>
           </div>
         </div>
-        <label>季号</label>
-        <input name="season" value="" placeholder="示例：1" />
-        <label>剧名</label>
-        <input name="showName" value="" placeholder="示例：仁心俱乐部" />
+        <div class="qbr-field" data-for="removeEnglish">
+          <div class="qbr-help">自动删除「中文.英文.SxxExx」格式中的英文剧名段，无需填写参数。</div>
+        </div>
+        <div class="qbr-field" data-for="cnEpisode">
+          <label>季号</label>
+          <input name="season" value="" placeholder="示例：1" />
+        </div>
+        <div class="qbr-field" data-for="episode">
+          <label>剧名</label>
+          <input name="showName" value="" placeholder="示例：仁心俱乐部" />
+        </div>
         <div class="qbr-actions">
           <button type="button" class="qbr-load">读取</button>
           <button type="button" class="qbr-preview-btn">预览</button>
@@ -716,6 +748,7 @@
     restorePanelPos(panel);
     restoreFormValues(panel);
     bindFormPersistence(panel);
+    syncFieldVisibility(panel);
     bindPanelDrag(panel);
     window.addEventListener("resize", () => keepPanelInViewport(panel));
     panel.querySelector(".qbr-toggle").addEventListener("click", (event) => {
