@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.1
+// @version      0.3.2
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -726,7 +726,11 @@
         return;
       }
       panel.classList.toggle("qbr-collapsed");
-      requestAnimationFrame(() => keepPanelInViewport(panel));
+      // setTimeout(0) instead of requestAnimationFrame: RAF gets throttled
+      // or skipped in non-visible tabs, leaving the panel off-screen after a
+      // toggle in a background tab. keepPanelInViewport's getBoundingClientRect
+      // already flushes layout, so we don't need to wait for the next paint.
+      setTimeout(() => keepPanelInViewport(panel), 0);
     });
     panel.querySelector(".qbr-load").addEventListener("click", () => loadFiles().catch((error) => renderStatus(error.message)));
     panel.querySelector(".qbr-preview-btn").addEventListener("click", async () => {
