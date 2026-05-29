@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quark Batch Rename Helper
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.4.0
+// @version      0.4.1
 // @description  Add a compact batch rename panel to Quark Drive file lists.
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -279,8 +279,14 @@
           failed.push(`${item.file_name}: ${error.message}`);
         }
       }
-      renderStatus(failed.length ? `完成 ${ok} 个，失败 ${failed.length} 个` : `全部完成 ${ok} 个文件`);
-      renderPreview(state.duplicates, failed);
+      if (failed.length) {
+        renderStatus(`完成 ${ok} 个，失败 ${failed.length} 个`);
+        renderPreview(state.duplicates, failed);
+      } else {
+        renderStatus(`全部完成 ${ok} 个文件，即将刷新页面…`);
+        renderPreview(state.duplicates, failed);
+        setTimeout(() => location.reload(), 1200);
+      }
     } finally {
       state.busy = false;
       setBusy(false);
