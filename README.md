@@ -17,6 +17,25 @@
 - 输入框默认只显示灰色示例，不会把示例当作实际规则
 - 悬浮图标可以替换为自定义图标，详见下方"更换悬浮图标"
 
+### Autohome Config Export（汽车之家配置导出）
+
+路径：`userscripts/autohome-config-export.user.js`
+
+- 适用于汽车之家车型「参数配置」页：`https://car.autohome.com.cn/config/*`（以及 `/spec/*`）
+- 右下角浮动入口（可拖拽），点击展开导出面板
+- 自动识别页面所有车型（列）和全部配置分类（基本参数、车身、发动机、被动安全……）
+- **可分类导出**：勾选需要的分类后点「导出所选分类」
+- **可一键全部导出**：点「一键导出全部」导出所有分类
+- 两种排版：`分表`（每个分类一个工作表）/ `合并`（所有分类汇总到一页，用「【分类名】」分隔）
+- 自动还原汽车之家用 CSS 反爬隐藏的文字，配置项里的 ●（标配）/ ○（选装）/ -（无）也会一并导出
+- 依赖 SheetJS，脚本头已通过 `@require` 自动加载，无需手动安装
+- 导出文件名形如 `昂科威Plus_配置参数_20260530.xlsx`
+
+安装地址：
+`https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js`
+
+> 备注：外观颜色 / 内饰颜色这类以色块图片呈现、没有文字的行，导出值会为空，属正常现象。
+
 ## 安装
 
 1. 安装 Tampermonkey。
