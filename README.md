@@ -1,61 +1,105 @@
 # ScriptBox
 
-一个收纳实用脚本的小项目。当前包含夸克网盘网页端的 Tampermonkey 批量重命名脚本，后续可以继续补充更多浏览器脚本、自动化脚本和小工具。
+一个收纳实用脚本的小项目，主要放 Tampermonkey 浏览器脚本、网页自动化脚本和日常小工具。
 
-当前首个脚本是由 Codex 和 travisoa 共同完成的油猴脚本，用于夸克网盘批量整理视频文件名的实际工作流。
+## 脚本列表
 
-## 脚本
-
-### Quark Batch Rename Helper
-
-路径：`userscripts/quark-batch-rename.user.js`
-
-- 右下角浮动图标入口（可自由拖拽），点击后展开批量重命名面板
-- 支持已勾选可见视频、当前目录全部视频等文件来源
-- 支持添加前缀、正则替换、删除英文剧名、中文集数转 `SxxExx`、整理为 `剧名.SxxExx`
-- 执行前可预览新旧文件名
-- 输入框默认只显示灰色示例，不会把示例当作实际规则
-- 悬浮图标可以替换为自定义图标，详见下方"更换悬浮图标"
-
-### Autohome Config Export（汽车之家配置导出）
-
-路径：`userscripts/autohome-config-export.user.js`
-
-- 适用于汽车之家车型「参数配置」页：匹配 `https://*.autohome.com.cn/config/*`，同时兼容旧版（`car.` 域名）与新版（`www.` 域名，Next.js 改版）两套页面
-- 右下角浮动入口（可拖拽），点击展开导出面板
-- 自动识别页面所有车型（列）和全部配置分类（基本参数、车身、发动机、被动安全……）
-- **可分类导出**：勾选需要的分类后点「导出所选分类」
-- **可一键全部导出**：点「一键导出全部」导出所有分类
-- **可按车型分组导出**：「按车型分组」下拉里选 `能源类型` / `驱动形式` / `年款` 等（维度取自表头上方的筛选项），导出时按该维度把车型拆成多组——`合并` 模式下每个分组一个工作表（如 `纯电` / `增程式`），`分表` 模式下命名为「分组-分类」
-- 两种排版：默认 `合并`（所有分类汇总到一页，用「【分类名】」分隔）；可切换 `分表`（每个分类一个工作表）
-- 自动还原汽车之家用 CSS 反爬隐藏的文字，配置项里的 ●（标配）/ ○（选装）/ -（无）也会一并导出
-- 新版页面配置是异步加载的，面板展开后会自动等待数据出现；车系之间切换（SPA 跳转）也会自动重新识别，无需手动收起再展开
-- 依赖 SheetJS，脚本头已通过 `@require` 自动加载，无需手动安装
-- 导出文件名形如 `昂科威Plus_配置参数_20260530.xlsx`
-
-安装地址：
-`https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js`
-
-> 备注：外观颜色 / 内饰颜色这类以色块图片呈现、没有文字的行，导出值会为空，属正常现象。
+| 脚本 | 文件 | 适用页面 | 用途 |
+| --- | --- | --- | --- |
+| Autohome Config Export（汽车之家配置导出） | `userscripts/autohome-config-export.user.js` | `https://*.autohome.com.cn/config/*`、`https://*.autohome.com.cn/spec/*` | 把汽车之家车型参数配置页导出为 Excel |
+| Quark Batch Rename Helper | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 在夸克网盘网页端批量整理视频文件名 |
 
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开脚本 raw 地址：
-   `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js`
+2. 打开要安装的脚本 raw 地址。
 3. 在 Tampermonkey 安装页点击安装或更新。
-4. 打开 `https://pan.quark.cn/`，页面右下角会出现浮动图标。
+4. 刷新对应网站页面，右下角会出现脚本浮动入口。
 
-## 使用
+脚本 raw 地址：
 
-1. 在夸克网盘文件列表中勾选要处理的视频，或选择当前目录全部视频。
-2. 点击浮动图标展开面板。
-3. 选择重命名规则并填写参数。
-4. 点击读取、预览，确认无误后执行。
+| 脚本 | 安装地址 |
+| --- | --- |
+| 汽车之家配置导出 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js` |
+| 夸克批量重命名 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
 
-## 使用示例
+更新脚本时，需要把脚本头部的 `@version` 改成更大的版本号，否则 Tampermonkey 可能不会自动拉取新版本。
 
-### 把 `第1集` 改成 `S01E01`
+## Autohome Config Export
+
+路径：`userscripts/autohome-config-export.user.js`
+
+### 功能
+
+- 适用于汽车之家车型「参数配置」页，兼容旧版 `car.` 域名页面和新版 `www.` 域名 Next.js 页面。
+- 右下角浮动入口可拖拽，点击后展开导出面板。
+- 自动识别页面中的车型列和配置分类，例如基本参数、车身、电动机、电池/充电、主动安全、座椅配置、颜色、选装包等。
+- 支持勾选配置分类后导出，也支持一键导出全部分类。
+- 支持两种 Excel 排版：
+  - `合并一页`：默认模式，所有分类汇总到一个工作表，用「【分类名】」分隔。
+  - `分表(每类一页)`：每个配置分类单独生成一个工作表。
+- 支持按车型分组导出。只有当页面筛选项或配置数据里存在多个可区分取值时，下拉框才会出现可用分组选项，例如能源类型、驱动形式、年款等。
+- 自动剔除 `计算器`、`询底价`、`参数纠错` 等页面操作文字。
+- 自动还原汽车之家用 CSS 隐藏的配置文字，并导出 `●`（标配）、`○`（选装）、`-`（无）等符号。
+- 新版页面配置异步加载时，面板展开后会自动等待数据出现；车系之间 SPA 跳转后也会重新识别。
+- 依赖 SheetJS，脚本头已通过 `@require` 自动加载，无需手动安装。
+
+### 使用
+
+1. 打开汽车之家车型参数配置页，例如 `https://www.autohome.com.cn/config/series/6651.html`。
+2. 点击右下角「配置导出」浮动入口。
+3. 确认面板顶部显示的车系、车型数和分类数。
+4. 按需勾选配置分类。
+5. 选择导出排版：`合并一页` 或 `分表(每类一页)`。
+6. 如有可用分组选项，可在「按车型分组」下拉框中选择分组维度。
+7. 点击「导出所选分类」或「一键导出全部」。
+
+导出文件名形如：
+
+```text
+MG4_配置参数_20260531.xlsx
+昂科威Plus_配置参数_20260531.xlsx
+```
+
+### 实测记录
+
+在 `https://www.autohome.com.cn/config/series/6651.html` 的 MG4 配置页上实测：
+
+- 识别结果：`MG4 · 车型 11 款 · 分类 25 个`
+- 导出文件：`MG4_配置参数_20260531.xlsx`
+- Excel 结构：1 个工作表 `MG4配置`，共 239 行、12 列（参数列 + 11 款车型列）
+- `能源类型`、`CLTC纯电续航里程(km)`、`驱动方式` 等关键行导出正常
+- 外观颜色、内饰颜色在该页面可导出文字配置
+
+### 注意
+
+- 汽车之家页面结构经常调整，若浮动入口不出现、车型数为 0、分类数异常，通常需要同步更新选择器。
+- 分组选项不是固定出现的。若当前页面所有车型在能源、驱动、年款等维度上没有差异，或页面筛选区没有对应信息，则只显示「不分组」。
+- 外观颜色、内饰颜色等行是否有值取决于页面是否提供可读文字；如果页面只用图片或色块表达，可能无法完整导出。
+- 导出结果仅来自页面当前展示数据，正式使用前建议抽查 Excel 与网页原表是否一致。
+
+## Quark Batch Rename Helper
+
+路径：`userscripts/quark-batch-rename.user.js`
+
+### 功能
+
+- 右下角浮动图标入口可拖拽，点击后展开批量重命名面板。
+- 支持已勾选可见视频、当前目录全部视频等文件来源。
+- 支持添加前缀、正则替换、删除英文剧名、中文集数转 `SxxExx`、整理为 `剧名.SxxExx`。
+- 执行前可预览新旧文件名。
+- 输入框默认只显示灰色示例，不会把示例当作实际规则。
+- 悬浮图标可以替换为自定义图标，详见「更换夸克脚本悬浮图标」。
+
+### 使用
+
+1. 打开 `https://pan.quark.cn/`。
+2. 在文件列表中勾选要处理的视频，或选择当前目录全部视频。
+3. 点击浮动图标展开面板。
+4. 选择重命名规则并填写参数。
+5. 点击读取、预览，确认无误后执行。
+
+### 使用示例：把 `第1集` 改成 `S01E01`
 
 适合这类文件名：
 
@@ -76,23 +120,29 @@
 
 如果是第二季，季号填写 `2` 即可。
 
-## 更换悬浮图标
+### 注意
 
-图标源文件统一放在 `userscripts/assets/`，仓库自带 `doc-pencil.svg` 和 `flower.svg`，默认使用 `flower.svg`。换成自己的图标走以下五步。
+- 脚本只匹配 `https://pan.quark.cn/*`。
+- 批量执行前请先预览，确认文件名符合预期。
+- 夸克网盘接口或页面结构变动时，脚本可能需要同步更新。
+
+## 更换夸克脚本悬浮图标
+
+图标源文件统一放在 `userscripts/assets/`，仓库自带 `doc-pencil.svg` 和 `flower.svg`。换成自己的图标走以下步骤。
 
 ### 1. 把新图标放进 `userscripts/assets/`
 
-```
-userscripts/assets/your-icon.svg     # 也支持 .png / .jpg
+```text
+userscripts/assets/your-icon.svg
 ```
 
 - 推荐 SVG，方形 `viewBox`（`0 0 64 64`、`0 0 1024 1024` 都行）。
-- 如果是从 iconfont 之类的站下载的 SVG，**先把 `<svg>` 标签上写死的 `width="200" height="200"` 等尺寸属性删掉**，否则会撑爆 44px 的圆形浮窗。
-- PNG/JPG 也行，建议先压到 64×64 ~ 128×128 以内。
+- 如果是从 iconfont 之类的站下载的 SVG，先把 `<svg>` 标签上写死的 `width="200" height="200"` 等尺寸属性删掉，否则会撑爆 44px 的圆形浮窗。
+- PNG/JPG 也行，建议先压到 64 x 64 到 128 x 128 以内。
 
 ### 2. 改脚本里的 `ICON_SVG`
 
-打开 `userscripts/quark-batch-rename.user.js`，找到第 26 行的 `ICON_SVG` 常量，**整行替换**为：
+打开 `userscripts/quark-batch-rename.user.js`，找到 `ICON_SVG` 常量，整行替换为：
 
 ```js
   const ICON_SVG = `<img src="https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/your-icon.svg" alt="" style="width:100%;height:100%;display:block;pointer-events:none" />`;
@@ -100,35 +150,18 @@ userscripts/assets/your-icon.svg     # 也支持 .png / .jpg
 
 要点：
 
-- 用**反引号** `` ` ``（键盘左上角 `~` 那个键），不是单引号 `'` 或双引号 `"`。
-- 替换的是 `ICON_SVG = ...;` 这一整行的反引号内容；不要去改 `<svg xmlns="...">` 的 `xmlns` 属性 —— `xmlns` 是 XML 命名空间，跟图片源没有任何关系。
-- 想离线/不依赖网络，也可以把 svg 文件里的 `<svg>...</svg>` 整段直接粘进反引号，省一次 GitHub 请求。
+- 使用反引号 `` ` ``，不是单引号 `'` 或双引号 `"`。
+- 替换的是 `ICON_SVG = ...;` 这一整行的反引号内容。
+- 想离线或减少一次 GitHub 请求，也可以把 svg 文件里的 `<svg>...</svg>` 整段直接粘进反引号。
 
-### 3. 把 `@version` 往后加一位
+### 3. 提高版本号并更新
 
-第 4 行的 `// @version 0.x.x` 改成更大的版本号（如 `0.2.2 → 0.2.3`），否则 Tampermonkey 不会认为有新版本，自动更新跳过。
+1. 把脚本头部的 `@version` 改成更大的版本号。
+2. 提交并推送到 GitHub。
+3. 在 Tampermonkey 仪表盘点击检查更新，或重新打开 raw 地址手动更新。
 
-### 4. push 到 GitHub
+## 维护建议
 
-```bash
-git add userscripts/
-git commit -m "Swap floating icon to your-icon"
-git push
-```
-
-### 5. 让 Tampermonkey 拉到新版本
-
-两种方式任选其一：
-
-- **自动**：等 Tampermonkey 下次 poll `@updateURL`（默认每天一次），或在 Tampermonkey 仪表盘里点"检查更新"。
-- **手动立刻生效**：浏览器直接打开
-  `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js`，
-  Tampermonkey 会弹出更新确认页面，点"重新安装"。
-
-确认更新后刷新夸克网盘页面，右下角的浮动图标就变成新图了。
-
-## 注意
-
-- 脚本只匹配 `https://pan.quark.cn/*`。
-- 批量执行前请先预览，确认文件名符合预期。
-- 夸克网盘接口或页面结构变动时，脚本可能需要同步更新。
+- 每个脚本尽量保持单文件可安装，脚本头部保留 `@downloadURL` 和 `@updateURL`。
+- 新增脚本后，在「脚本列表」和「安装」表格中补上文件路径、匹配页面和 raw 地址。
+- 修改脚本行为后，同步更新 README 里的使用说明和注意事项。
