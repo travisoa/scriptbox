@@ -2,9 +2,9 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.2.0
-// @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel, by category or all at once. Supports both the legacy and the new Next.js config layouts.
-// @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel，可按分类导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
+// @version      0.3.0
+// @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
+// @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
 // @match        https://*.autohome.com.cn/config/*
 // @match        https://*.autohome.com.cn/spec/*
@@ -273,35 +273,211 @@
     return widths.map((w) => ({ wch: w }));
   }
 
-  // mode: "split" 每个分类一个工作表；"merge" 合并为一个工作表
-  function exportExcel(data, cats, mode) {
+  /* ---- 按车型分组（能源类型 / 驱动形式 / 年款…） ---- */
+
+  // 全表行铺平，便于按某一行的取值给车型归类
+  function flattenRows(data) {
+    const out = [];
+    data.categories.forEach((c) =>
+      c.rows.forEach((r) => out.push({ label: r[0], vals: r.slice(1) }))
+    );
+    return out;
+  }
+
+  // 把「驱动方式 / 电机布局」取值归一为 两驱/四驱/后驱/前驱
+  function bucketDrive(v) {
+    if (/四驱/.test(v)) return "四驱";
+    if (/前.*后|后.*前/.test(v)) return "四驱"; // 前置+后置（双电机）即四驱
+    if (/后驱|后置/.test(v)) return "后驱";
+    if (/前驱|前置/.test(v)) return "前驱";
+    if (/两驱/.test(v)) return "两驱";
+    return "";
+  }
+
+  // row 标签与维度名是否相关（共享任意 2 字子串）
+  function rowRelated(label, dimName) {
+    for (let i = 0; i + 2 <= dimName.length; i++) {
+      if (label.indexOf(dimName.substr(i, 2)) >= 0) return true;
+    }
+    return false;
+  }
+
+  // 从页面表头上方的筛选区提取可分组维度 [{name, options}]
+  function getFilterDimensions() {
+    let panel = null,
+      best = 1e9;
+    document.querySelectorAll("div,form").forEach((e) => {
+      const t = (e.innerText || "").replace(/\s+/g, "");
+      if (!t || t.length >= best || t.length > 320) return;
+      const hits = (t.match(/能源类型|驱动形式|年款|变速箱|排量|续航|座位|级别/g) || []).length;
+      if (hits >= 2) {
+        panel = e;
+        best = t.length;
+      }
+    });
+    if (!panel) return [];
+    const dims = [],
+      seen = {};
+    panel.querySelectorAll("*").forEach((row) => {
+      if (row.children.length < 2) return;
+      const first = row.children[0];
+      if (first.children.length !== 0) return; // 维度名必须是叶子节点
+      const name = (first.innerText || "").trim();
+      if (!name || name.length > 8 || /^全部/.test(name)) return;
+      if ((row.innerText || "").length > 60) return; // 只取较短的条件行
+      const opts = [];
+      for (let i = 1; i < row.children.length; i++) {
+        const c = row.children[i];
+        const leaves = c.children.length
+          ? Array.from(c.querySelectorAll("*")).filter((x) => x.children.length === 0)
+          : [c];
+        leaves.forEach((l) => {
+          const tx = (l.innerText || "").trim();
+          if (tx) opts.push(tx);
+        });
+      }
+      const options = Array.from(new Set(opts)).filter(
+        (o) => o && o !== name && !/^全部/.test(o)
+      );
+      if (name && options.length && !seen[name]) {
+        seen[name] = 1;
+        dims.push({ name, options });
+      }
+    });
+    return dims;
+  }
+
+  // 筛选区取不到时（旧版页面等），从数据本身推导维度
+  function deriveDimensions(data) {
+    const rows = flattenRows(data),
+      cars = data.cars,
+      dims = [];
+    const uniq = (a) => Array.from(new Set(a.filter(Boolean)));
+    const er = rows.find((r) => /能源类型/.test(r.label));
+    if (er) {
+      const o = uniq(er.vals);
+      if (o.length > 1) dims.push({ name: "能源类型", options: o });
+    }
+    const dr = rows.find((r) => /^驱动方式$|^驱动形式$/.test(r.label));
+    if (dr) {
+      const o = uniq(dr.vals.map(bucketDrive));
+      if (o.length > 1) dims.push({ name: "驱动形式", options: o });
+    }
+    const years = uniq(cars.map((c) => (c.name.match(/(\d{4})\s*款/) || [])[0]));
+    if (years.length > 1) dims.push({ name: "年款", options: years });
+    return dims;
+  }
+
+  function getGroupDimensions(data) {
+    let dims = getFilterDimensions();
+    if (!dims.length) dims = deriveDimensions(data);
+    return dims.filter((d) => d.options.length >= 1);
+  }
+
+  // 计算每个车型在某维度下的组名（按列顺序）
+  function carGroupKeys(dim, data) {
+    const opts = dim.options.map((o) => o.trim());
+    const rows = flattenRows(data);
+    const cars = data.cars;
+    const matchOpt = (text) => {
+      if (!text) return null;
+      let hit = opts.find((o) => text.indexOf(o) >= 0);
+      if (hit) return hit;
+      const b = bucketDrive(text); // 驱动类归一后再比
+      if (b) {
+        hit = opts.find((o) => o.indexOf(b) >= 0 || b.indexOf(o) >= 0);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    // 1) 优先：在与维度名相关的配置行里找能给所有车型归类的那一行
+    //    （避免「电机布局: 前置+后置」这类无关行抢先误判驱动形式）
+    const related = rows.filter((r) => rowRelated(r.label, dim.name));
+    for (const row of related) {
+      const keys = cars.map((c, ci) => matchOpt(row.vals[ci]));
+      if (keys.every(Boolean)) return keys;
+    }
+    // 2) 兜底：扫描全表任意一行
+    for (const row of rows) {
+      const keys = cars.map((c, ci) => matchOpt(row.vals[ci]));
+      if (keys.every(Boolean)) return keys;
+    }
+    // 3) 退化：车型名 + 全表逐车匹配，仍匹配不到归入「其他」
+    return cars.map((c, ci) => {
+      let k = matchOpt(c.name);
+      if (k) return k;
+      for (const row of rows) {
+        k = matchOpt(row.vals[ci]);
+        if (k) return k;
+      }
+      return "其他";
+    });
+  }
+
+  // 按维度把车型列拆成若干组 [{name, idx:[列下标]}]
+  function buildGroups(data, dim) {
+    const keys = carGroupKeys(dim, data);
+    const order = dim.options.slice();
+    keys.forEach((k) => {
+      if (order.indexOf(k) < 0) order.push(k);
+    });
+    return order
+      .map((g) => ({
+        name: g,
+        idx: keys.map((k, i) => (k === g ? i : -1)).filter((i) => i >= 0),
+      }))
+      .filter((g) => g.idx.length);
+  }
+
+  // 取某组车型对应的分类（按列下标裁剪取值）
+  function subsetCat(cat, idx) {
+    return {
+      name: cat.name,
+      rows: cat.rows.map((r) => [r[0]].concat(idx.map((i) => r[i + 1]))),
+    };
+  }
+
+  /* ---- 生成并下载 Excel ----
+     mode:     "split" 每个分类一个工作表；"merge" 合并为一个工作表
+     groupDim: 为 null 时不分组；否则按该维度把车型拆成多组分别导出 */
+  function exportExcel(data, cats, mode, groupDim) {
     const wb = XLSX.utils.book_new();
     const used = new Set();
+    const groups = groupDim
+      ? buildGroups(data, groupDim)
+      : [{ name: null, idx: data.cars.map((_, i) => i) }];
 
-    if (mode === "merge") {
-      const aoa = [headerRow(data.cars)];
-      cats.forEach((cat) => {
-        aoa.push(["【" + cat.name + "】"]); // 分类分隔行
-        cat.rows.forEach((r) => aoa.push(r));
-      });
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws["!cols"] = fitColumns(aoa);
-      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(data.series + "配置", used));
-    } else {
-      cats.forEach((cat) => {
-        const aoa = categoryToAoa(cat, data.cars);
+    groups.forEach((g) => {
+      const gcars = g.idx.map((i) => data.cars[i]);
+      const gcats = cats.map((c) => subsetCat(c, g.idx));
+      if (mode === "merge") {
+        const aoa = [headerRow(gcars)];
+        gcats.forEach((cat) => {
+          aoa.push(["【" + cat.name + "】"]); // 分类分隔行
+          cat.rows.forEach((r) => aoa.push(r));
+        });
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         ws["!cols"] = fitColumns(aoa);
-        XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(cat.name, used));
-      });
-    }
+        const sheetName = g.name || data.series + "配置";
+        XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(sheetName, used));
+      } else {
+        gcats.forEach((cat) => {
+          const aoa = categoryToAoa(cat, gcars);
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          ws["!cols"] = fitColumns(aoa);
+          const sheetName = g.name ? g.name + "-" + cat.name : cat.name;
+          XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(sheetName, used));
+        });
+      }
+    });
 
     const d = new Date();
     const stamp =
       d.getFullYear() +
       String(d.getMonth() + 1).padStart(2, "0") +
       String(d.getDate()).padStart(2, "0");
-    const fname = `${data.series}_配置参数_${stamp}.xlsx`;
+    const by = groupDim ? "_按" + groupDim.name : "";
+    const fname = `${data.series}_配置参数${by}_${stamp}.xlsx`;
     XLSX.writeFile(wb, fname);
   }
 
@@ -329,6 +505,8 @@
 #${PANEL_ID} .ace-list label{display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;}
 #${PANEL_ID} .ace-list label span{flex:1;}
 #${PANEL_ID} .ace-list label small{color:#9aa0a6;}
+#${PANEL_ID} .ace-group{display:flex;align-items:center;gap:8px;padding:8px 12px 4px;border-top:1px solid #eef0f2;color:#646a73;}
+#${PANEL_ID} .ace-group select{flex:1;padding:5px 6px;border:1px solid #dcdfe3;border-radius:6px;background:#fff;color:#1f2329;font-size:13px;cursor:pointer;}
 #${PANEL_ID} .ace-mode{display:flex;gap:14px;padding:6px 12px;border-top:1px solid #eef0f2;color:#646a73;}
 #${PANEL_ID} .ace-mode label{display:flex;align-items:center;gap:5px;cursor:pointer;}
 #${PANEL_ID} .ace-foot{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #eef0f2;}
@@ -351,6 +529,9 @@
       <div class="ace-meta"></div>
       <div class="ace-tools"><a data-act="all">全选</a><a data-act="none">清空</a><span class="sp"></span><span id="ace-count"></span></div>
       <div class="ace-list"></div>
+      <div class="ace-group">按车型分组
+        <select class="ace-group-sel"><option value="">不分组</option></select>
+      </div>
       <div class="ace-mode">
         <label><input type="radio" name="ace-mode" value="split" checked> 分表(每类一页)</label>
         <label><input type="radio" name="ace-mode" value="merge"> 合并一页</label>
@@ -369,8 +550,10 @@
   const list = root.querySelector(".ace-list");
   const countEl = root.querySelector("#ace-count");
   const toastEl = root.querySelector(".ace-toast");
+  const groupSel = root.querySelector(".ace-group-sel");
 
   let DATA = null;
+  let DIMS = [];
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -402,7 +585,21 @@
       lab.innerHTML = `<input type="checkbox" data-idx="${idx}" checked><span>${cat.name}</span><small>${cat.rows.length}</small>`;
       list.appendChild(lab);
     });
+    // 填充「按车型分组」下拉（从表头筛选区或数据推导）
+    const prev = groupSel.value;
+    DIMS = DATA.cars.length ? getGroupDimensions(DATA) : [];
+    groupSel.innerHTML =
+      '<option value="">不分组</option>' +
+      DIMS.map(
+        (d, i) => `<option value="${i}">按${d.name}（${d.options.length} 组）</option>`
+      ).join("");
+    if (prev && DIMS[Number(prev)]) groupSel.value = prev;
     refreshCount();
+  }
+
+  function currentGroupDim() {
+    const v = groupSel.value;
+    return v === "" ? null : DIMS[Number(v)] || null;
   }
 
   function selectedCategories() {
@@ -428,8 +625,13 @@
       return;
     }
     try {
-      exportExcel(DATA, cats, currentMode());
-      toast(`已导出 ${cats.length} 个分类`);
+      const dim = currentGroupDim();
+      exportExcel(DATA, cats, currentMode(), dim);
+      toast(
+        dim
+          ? `已按${dim.name}分组导出 ${cats.length} 个分类`
+          : `已导出 ${cats.length} 个分类`
+      );
     } catch (e) {
       console.error("[配置导出]", e);
       toast("导出失败：" + e.message);
