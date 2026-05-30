@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.2
+// @version      0.3.3
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -533,8 +533,8 @@
         <select class="ace-group-sel"><option value="">不分组</option></select>
       </div>
       <div class="ace-mode">
-        <label><input type="radio" name="ace-mode" value="split" checked> 分表(每类一页)</label>
-        <label><input type="radio" name="ace-mode" value="merge"> 合并一页</label>
+        <label><input type="radio" name="ace-mode" value="merge" checked> 合并一页</label>
+        <label><input type="radio" name="ace-mode" value="split"> 分表(每类一页)</label>
       </div>
       <div class="ace-foot">
         <button class="sec" data-act="selected">导出所选分类</button>
@@ -635,7 +635,7 @@
 
   function currentMode() {
     const r = root.querySelector('input[name="ace-mode"]:checked');
-    return r ? r.value : "split";
+    return r ? r.value : "merge";
   }
 
   function doExport(cats) {
