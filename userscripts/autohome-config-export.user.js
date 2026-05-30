@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.1
+// @version      0.3.2
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -554,6 +554,9 @@
 
   let DATA = null;
   let DIMS = [];
+  let retryTimer = null;
+  let renderRetries = 0;
+  const MAX_RENDER_RETRIES = 30; // 30 × 500ms ≈ 15s，等待配置异步加载
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -595,6 +598,27 @@
       ).join("");
     if (prev && DIMS[Number(prev)]) groupSel.value = prev;
     refreshCount();
+  }
+
+  function dataIncomplete() {
+    return !DATA || !DATA.categories.length || !DATA.cars.length;
+  }
+
+  // 渲染一次；若配置还在异步加载（新版页面数据是 XHR 后注入的），
+  // 且面板处于展开态，则定时重试，直到识别到数据或超时。
+  function requestRender(reset) {
+    if (reset) renderRetries = 0;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    renderList();
+    if (dataIncomplete() && !root.classList.contains("collapsed")) {
+      if (renderRetries < MAX_RENDER_RETRIES) {
+        renderRetries++;
+        meta.innerHTML = "正在读取配置数据…（页面加载中，请稍候）";
+        retryTimer = setTimeout(() => requestRender(false), 500);
+      }
+    }
+    keepInViewport(); // 数据加载后列表变高，重新夹回可视区域
   }
 
   function currentGroupDim() {
@@ -729,8 +753,13 @@
     try {
       localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
     } catch (e) {}
-    if (!v) renderList(); // 先渲染再测量，拿到展开后的真实尺寸
-    keepInViewport();
+    if (v) {
+      clearTimeout(retryTimer); // 收起时停止重试
+      retryTimer = null;
+      keepInViewport();
+    } else {
+      requestRender(true); // 展开：渲染并在数据未就绪时自动重试
+    }
   }
 
   fab.addEventListener("click", () => {
@@ -774,6 +803,27 @@
 
   // 窗口尺寸变化时保持在可视区域
   window.addEventListener("resize", keepInViewport);
+
+  // SPA 路由切换（车系之间跳转）后，丢弃旧数据并在展开态重新识别
+  let lastHref = location.href;
+  function onUrlChange() {
+    if (location.href === lastHref) return;
+    lastHref = location.href;
+    DATA = null;
+    DIMS = [];
+    if (!root.classList.contains("collapsed")) requestRender(true);
+  }
+  ["pushState", "replaceState"].forEach((m) => {
+    const orig = history[m];
+    history[m] = function () {
+      const ret = orig.apply(this, arguments);
+      setTimeout(onUrlChange, 0);
+      return ret;
+    };
+  });
+  window.addEventListener("popstate", () => setTimeout(onUrlChange, 0));
+  window.addEventListener("hashchange", () => setTimeout(onUrlChange, 0));
+  setInterval(onUrlChange, 1500); // 兜底：捕捉未走 history API 的导航
 
   // 还原位置 / 折叠状态
   const savedInit = readSavedPos();
