@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -660,15 +660,80 @@
     }
   });
 
+  /* ---- 位置：始终保持在可视区域内 ---- */
+  const DEFAULT_RIGHT = 18;
+  const DEFAULT_BOTTOM = 90;
+
+  function rootSize() {
+    if (root.classList.contains("collapsed")) {
+      return { w: COLLAPSED_SIZE, h: COLLAPSED_SIZE };
+    }
+    const r = root.getBoundingClientRect();
+    return {
+      w: Math.min(r.width || 300, window.innerWidth - PANEL_MARGIN * 2),
+      h: Math.min(r.height || 200, window.innerHeight - PANEL_MARGIN * 2),
+    };
+  }
+
+  function applyPos(left, top, save) {
+    const { w, h } = rootSize();
+    const maxLeft = Math.max(PANEL_MARGIN, window.innerWidth - w - PANEL_MARGIN);
+    const maxTop = Math.max(PANEL_MARGIN, window.innerHeight - h - PANEL_MARGIN);
+    const l = Math.round(Math.min(Math.max(left, PANEL_MARGIN), maxLeft));
+    const t = Math.round(Math.min(Math.max(top, PANEL_MARGIN), maxTop));
+    root.style.left = l + "px";
+    root.style.top = t + "px";
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    if (save) {
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify({ left: l, top: t }));
+      } catch (e) {}
+    }
+  }
+
+  function defaultPos() {
+    const { w, h } = rootSize();
+    return {
+      left: Math.max(PANEL_MARGIN, window.innerWidth - w - DEFAULT_RIGHT),
+      top: Math.max(PANEL_MARGIN, window.innerHeight - h - DEFAULT_BOTTOM),
+    };
+  }
+
+  function readSavedPos() {
+    try {
+      const p = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+      if (p) {
+        const left = parseInt(p.left, 10);
+        const top = parseInt(p.top, 10);
+        if (Number.isFinite(left) && Number.isFinite(top)) return { left, top };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // 收起态：回到用户保存的拖拽位置；展开态：把面板夹回可视区域（不覆盖保存位置）
+  function keepInViewport() {
+    if (root.classList.contains("collapsed")) {
+      const s = readSavedPos() || defaultPos();
+      applyPos(s.left, s.top, false);
+    } else {
+      const r = root.getBoundingClientRect();
+      applyPos(r.left, r.top, false);
+    }
+  }
+
   // 展开 / 收起
   function setCollapsed(v) {
     root.classList.toggle("collapsed", v);
     try {
       localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
     } catch (e) {}
-    if (!v) renderList();
+    if (!v) renderList(); // 先渲染再测量，拿到展开后的真实尺寸
+    keepInViewport();
   }
-  fab.addEventListener("click", (e) => {
+
+  fab.addEventListener("click", () => {
     if (root.dataset.dragged === "1") {
       root.dataset.dragged = "0";
       return;
@@ -689,22 +754,14 @@
       const move = (ev) => {
         moved = true;
         root.dataset.dragged = "1";
-        let left = ev.clientX - offX;
-        let top = ev.clientY - offY;
-        left = Math.max(PANEL_MARGIN, Math.min(window.innerWidth - rect.width - PANEL_MARGIN, left));
-        top = Math.max(PANEL_MARGIN, Math.min(window.innerHeight - rect.height - PANEL_MARGIN, top));
-        root.style.left = left + "px";
-        root.style.top = top + "px";
-        root.style.right = "auto";
-        root.style.bottom = "auto";
+        applyPos(ev.clientX - offX, ev.clientY - offY, false);
       };
       const up = () => {
         document.removeEventListener("mousemove", move);
         document.removeEventListener("mouseup", up);
         if (moved) {
-          try {
-            localStorage.setItem(POS_KEY, JSON.stringify({ left: root.style.left, top: root.style.top }));
-          } catch (e) {}
+          const r = root.getBoundingClientRect();
+          applyPos(r.left, r.top, true); // 保存拖拽后的位置
         }
         setTimeout(() => (root.dataset.dragged = "0"), 0);
       };
@@ -715,15 +772,11 @@
   makeDraggable(fab);
   makeDraggable(head);
 
+  // 窗口尺寸变化时保持在可视区域
+  window.addEventListener("resize", keepInViewport);
+
   // 还原位置 / 折叠状态
-  try {
-    const pos = JSON.parse(localStorage.getItem(POS_KEY) || "null");
-    if (pos && pos.left && pos.top) {
-      root.style.left = pos.left;
-      root.style.top = pos.top;
-      root.style.right = "auto";
-      root.style.bottom = "auto";
-    }
-  } catch (e) {}
+  const savedInit = readSavedPos();
+  if (savedInit) applyPos(savedInit.left, savedInit.top, false);
   if (localStorage.getItem(COLLAPSED_KEY) === "0") setCollapsed(false);
 })();
