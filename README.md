@@ -21,7 +21,7 @@
 
 路径：`userscripts/autohome-config-export.user.js`
 
-- 适用于汽车之家车型「参数配置」页：`https://car.autohome.com.cn/config/*`（以及 `/spec/*`）
+- 适用于汽车之家车型「参数配置」页：匹配 `https://*.autohome.com.cn/config/*`，同时兼容旧版（`car.` 域名）与新版（`www.` 域名，Next.js 改版）两套页面
 - 右下角浮动入口（可拖拽），点击展开导出面板
 - 自动识别页面所有车型（列）和全部配置分类（基本参数、车身、发动机、被动安全……）
 - **可分类导出**：勾选需要的分类后点「导出所选分类」

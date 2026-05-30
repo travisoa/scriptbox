@@ -2,12 +2,12 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.1.0
-// @description  Export Autohome (car.autohome.com.cn) spec/config tables to Excel, by category or all at once.
-// @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel，可按分类导出，也可一键导出全部。
+// @version      0.2.0
+// @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel, by category or all at once. Supports both the legacy and the new Next.js config layouts.
+// @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel，可按分类导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
-// @match        https://car.autohome.com.cn/config/*
-// @match        https://car.autohome.com.cn/spec/*
+// @match        https://*.autohome.com.cn/config/*
+// @match        https://*.autohome.com.cn/spec/*
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMxMDdjNDEiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI0MCIgcng9IjMiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI4IiBmaWxsPSIjMTA3YzQxIi8+PHJlY3QgeD0iMjUiIHk9IjIwIiB3aWR0aD0iMiIgaGVpZ2h0PSIzMiIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjQiLz48cmVjdCB4PSIzNyIgeT0iMjAiIHdpZHRoPSIyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjMTA3YzQxIiBvcGFjaXR5PSIuNCIvPjxyZWN0IHg9IjEzIiB5PSIzMCIgd2lkdGg9IjM4IiBoZWlnaHQ9IjIiIGZpbGw9IiMxMDdjNDEiIG9wYWNpdHk9Ii40Ii8+PHJlY3QgeD0iMTMiIHk9IjQwIiB3aWR0aD0iMzgiIGhlaWdodD0iMiIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjQiLz48L3N2Zz4=
 // @homepageURL  https://github.com/travisoa/scriptbox
 // @downloadURL  https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js
@@ -94,21 +94,26 @@
     return cars;
   }
 
-  function getSeriesName() {
+  function getSeriesName(cars) {
+    // 旧版标题形如「汽车之家|昂科威Plus|报价大全|参数配置」
     const parts = (document.title || "").split(/[|｜]/).map((s) => s.trim());
-    // 标题形如「汽车之家|昂科威Plus|报价大全|参数配置」
-    if (parts.length >= 2 && parts[1]) return parts[1];
+    const good = parts.find(
+      (p) => p && !/汽车之家|参数配置|报价大全|报价|配置$/.test(p)
+    );
+    if (good) return good;
+    // 新版标题无车系名，从车型名取第一段，如「小鹏GX 2026款…」-> 小鹏GX
+    if (cars && cars.length) {
+      const first = cars[0].name.split(/\s+/)[0];
+      if (first) return first;
+    }
     return "车型配置";
   }
 
-  // 解析整张配置表 -> { series, cars, categories:[{name, rows:[[参数, v1, v2...]]}] }
-  function extract() {
+  /* ---- 旧版布局（car.autohome.com.cn，#config_data + table#tab_N，含 CSS 反爬） ---- */
+  function parseOld(cars) {
     const kwMap = buildKwMap();
-    const cars = getCars();
     const nCars = cars.length;
     const cd = document.querySelector("#config_data");
-    if (!cd) return null;
-
     const categories = [];
 
     const readRow = (row) => {
@@ -150,7 +155,92 @@
       if (rows.length) categories.push({ name, rows });
     });
 
-    return { series: getSeriesName(), cars, categories };
+    return categories;
+  }
+
+  /* ---- 新版布局（www.autohome.com.cn，Next.js，style_row__ / style_table_title__） ---- */
+  // 操作按钮 / 营销文字噪音（计算器、询底价等），导出时剔除
+  const NEW_NOISE = /(^|\s)(计算器|询底价|询价|参数纠错|降价通知|降价提醒|预约试驾|对比|分期|金融|车型详情|图片|查看|更多)(?=\s|$)/g;
+
+  // 按 DOM 顺序还原文本：文本节点保留，实心点→●、空心点→○，块级子元素之间补空格避免粘连
+  function newWalk(el) {
+    const parts = [];
+    el.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) {
+        const t = n.nodeValue.trim();
+        if (t) parts.push(t);
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        const cls = "" + (n.className || "");
+        if (/dot_solid/.test(cls)) parts.push("●"); // 标配
+        else if (/dot_outline/.test(cls)) parts.push("○"); // 选装
+        else {
+          const sub = newWalk(n);
+          if (sub) parts.push(sub);
+        }
+      }
+    });
+    return parts.join(" ");
+  }
+
+  function newLabel(cell) {
+    return newWalk(cell).replace(/\s+/g, " ").trim();
+  }
+
+  function newCellValue(cell) {
+    let s = newWalk(cell)
+      .replace(NEW_NOISE, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // 去掉描述性取值前面单独的标配/选装圆点（复合项内部的点保留）
+    s = s.replace(/^[●○]\s+(?=\S)/, "");
+    // 复合项分隔符两侧补空格（仅处理「 /字」，不动 265/45 这类）
+    s = s.replace(/\s\/(?=\S)/g, " / ");
+    return s || "-"; // 无
+  }
+
+  function parseNew(cars) {
+    const nCars = cars.length;
+    const categories = [];
+    let cur = null;
+    document
+      .querySelectorAll('[class*="style_table_title__"],[class*="style_row__"]')
+      .forEach((n) => {
+        const cls = "" + n.className;
+        if (/style_table_title__/.test(cls)) {
+          cur = { name: (n.innerText || "").trim().split("\n")[0] || "其他", rows: [] };
+          categories.push(cur);
+        } else if (/style_row__/.test(cls)) {
+          if (!cur) {
+            // 标题行之前的行（厂商指导价 / 经销商报价）归到「价格」
+            cur = { name: "价格", rows: [] };
+            categories.push(cur);
+          }
+          const cols = n.querySelectorAll('[class*="style_col__"]');
+          if (!cols.length) return;
+          const label = newLabel(cols[0]);
+          if (!label) return;
+          const out = [label];
+          for (let i = 1; i <= nCars; i++) {
+            out.push(cols[i] ? newCellValue(cols[i]) : "");
+          }
+          cur.rows.push(out);
+        }
+      });
+    return categories.filter((c) => c.rows.length);
+  }
+
+  // 解析整张配置表 -> { series, cars, categories:[{name, rows:[[参数, v1, v2...]]}] }
+  function extract() {
+    const cars = getCars();
+    let categories;
+    if (document.querySelector("#config_data")) {
+      categories = parseOld(cars); // 旧版
+    } else if (document.querySelector('[class*="style_table_title__"]')) {
+      categories = parseNew(cars); // 新版
+    } else {
+      return null;
+    }
+    return { series: getSeriesName(cars), cars, categories };
   }
 
   /* ---------------------------------------------------------------- 导出 Excel */
