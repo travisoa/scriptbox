@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.5
+// @version      0.3.6
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -193,8 +193,9 @@
       .replace(NEW_NOISE, " ")
       .replace(/\s+/g, " ")
       .trim();
-    // 去掉描述性取值前面单独的标配/选装圆点（复合项内部的点保留）
-    s = s.replace(/^[●○]\s+(?=\S)/, "");
+    // 单个「● 皮质」这类描述性取值去掉前导圆点；复合项保留每个子项的圆点。
+    const markCount = (s.match(/[●○]/g) || []).length;
+    if (markCount === 1) s = s.replace(/^[●○]\s+(?=\S)/, "");
     // 复合项分隔符两侧补空格（仅处理「 /字」，不动 265/45 这类）
     s = s.replace(/\s\/(?=\S)/g, " / ");
     return s || "-"; // 无
