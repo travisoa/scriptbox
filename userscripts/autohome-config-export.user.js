@@ -2,13 +2,13 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.7
+// @version      0.3.8
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
 // @match        https://*.autohome.com.cn/config/*
 // @match        https://*.autohome.com.cn/spec/*
-// @icon         https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/autohome-config-export.png
+// @icon         https://cdn.jsdelivr.net/gh/travisoa/scriptbox@main/userscripts/assets/autohome-config-export.png
 // @homepageURL  https://github.com/travisoa/scriptbox
 // @downloadURL  https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js
 // @updateURL    https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js
@@ -21,10 +21,13 @@
   "use strict";
 
   const PANEL_ID = "autohome-config-export";
+  // 主图标走 jsDelivr（国内可访问，比 raw.githubusercontent 稳）
   const FLOATING_ICON_URL =
-    "https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/autohome-config-export.png";
+    "https://cdn.jsdelivr.net/gh/travisoa/scriptbox@main/userscripts/assets/autohome-config-export.png";
+  // 网络全挂时的内联兜底图标（绿色表格 SVG，data URI 无需联网）
+  const FALLBACK_ICON_URL =
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMxMDdjNDEiLz48cmVjdCB4PSIxNCIgeT0iMTMiIHdpZHRoPSIzNiIgaGVpZ2h0PSIzOCIgcng9IjMiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSIxNCIgeT0iMTMiIHdpZHRoPSIzNiIgaGVpZ2h0PSI4IiBmaWxsPSIjMGM1ZjMxIi8+PHJlY3QgeD0iMjAiIHk9IjI3IiB3aWR0aD0iMjQiIGhlaWdodD0iMiIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjUiLz48cmVjdCB4PSIyMCIgeT0iMzMiIHdpZHRoPSIyNCIgaGVpZ2h0PSIyIiBmaWxsPSIjMTA3YzQxIiBvcGFjaXR5PSIuNSIvPjxyZWN0IHg9IjIwIiB5PSIzOSIgd2lkdGg9IjE2IiBoZWlnaHQ9IjIiIGZpbGw9IiMxMDdjNDEiIG9wYWNpdHk9Ii41Ii8+PHJlY3QgeD0iMzEiIHk9IjIxIiB3aWR0aD0iMiIgaGVpZ2h0PSIzMCIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjQiLz48L3N2Zz4=";
   const POS_KEY = "autohome-config-export-pos";
-  const COLLAPSED_KEY = "autohome-config-export-collapsed";
   const PANEL_MARGIN = 12;
   const COLLAPSED_SIZE = 46;
   const DRAG_THRESHOLD = 5;
@@ -219,7 +222,10 @@
             cur = { name: "价格", rows: [] };
             categories.push(cur);
           }
-          const cols = n.querySelectorAll('[class*="style_col__"]');
+          // 优先取直接子级的列，避免命中嵌套在取值里的 style_col__；
+          // 若结构有外层包裹（直接子级取不到）再退回递归选择。
+          let cols = n.querySelectorAll(':scope > [class*="style_col__"]');
+          if (!cols.length) cols = n.querySelectorAll('[class*="style_col__"]');
           if (!cols.length) return;
           const label = newLabel(cols[0]);
           if (!label) return;
@@ -557,6 +563,23 @@
   const toastEl = root.querySelector(".ace-toast");
   const groupSel = root.querySelector(".ace-group-sel");
 
+  // 主图标（jsDelivr）加载失败时退回内联兜底图标，避免空白圆圈
+  const fabImg = fab.querySelector("img");
+  if (fabImg) {
+    fabImg.addEventListener("error", () => {
+      if (fabImg.getAttribute("src") !== FALLBACK_ICON_URL) {
+        fabImg.src = FALLBACK_ICON_URL;
+      }
+    });
+  }
+
+  function escapeHtml(s) {
+    return ("" + s).replace(
+      /[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
+  }
+
   let DATA = null;
   let DIMS = [];
   let retryTimer = null;
@@ -586,11 +609,11 @@
     if (!DATA.cars.length) {
       meta.innerHTML = "未识别到车型列，请确认页面已加载完成。";
     } else {
-      meta.innerHTML = `车系：<b>${DATA.series}</b> · 车型 <b>${DATA.cars.length}</b> 款 · 分类 <b>${DATA.categories.length}</b> 个`;
+      meta.innerHTML = `车系：<b>${escapeHtml(DATA.series)}</b> · 车型 <b>${DATA.cars.length}</b> 款 · 分类 <b>${DATA.categories.length}</b> 个`;
     }
     DATA.categories.forEach((cat, idx) => {
       const lab = document.createElement("label");
-      lab.innerHTML = `<input type="checkbox" data-idx="${idx}" checked><span>${cat.name}</span><small>${cat.rows.length}</small>`;
+      lab.innerHTML = `<input type="checkbox" data-idx="${idx}" checked><span>${escapeHtml(cat.name)}</span><small>${cat.rows.length}</small>`;
       list.appendChild(lab);
     });
     // 填充「按车型分组」下拉（从表头筛选区或数据推导）
@@ -599,7 +622,7 @@
     groupSel.innerHTML =
       '<option value="">不分组</option>' +
       DIMS.map(
-        (d, i) => `<option value="${i}">按${d.name}（${d.options.length} 组）</option>`
+        (d, i) => `<option value="${i}">按${escapeHtml(d.name)}（${d.options.length} 组）</option>`
       ).join("");
     if (prev && DIMS[Number(prev)]) groupSel.value = prev;
     refreshCount();
@@ -752,12 +775,9 @@
     }
   }
 
-  // 展开 / 收起
+  // 展开 / 收起（不持久化折叠状态：每次进页面默认收起）
   function setCollapsed(v) {
     root.classList.toggle("collapsed", v);
-    try {
-      localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
-    } catch (e) {}
     if (v) {
       clearTimeout(retryTimer); // 收起时停止重试
       retryTimer = null;
