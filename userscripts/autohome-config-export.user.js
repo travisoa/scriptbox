@@ -2,13 +2,13 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.3
+// @version      0.3.4
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
 // @match        https://*.autohome.com.cn/config/*
 // @match        https://*.autohome.com.cn/spec/*
-// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMxMDdjNDEiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI0MCIgcng9IjMiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI4IiBmaWxsPSIjMTA3YzQxIi8+PHJlY3QgeD0iMjUiIHk9IjIwIiB3aWR0aD0iMiIgaGVpZ2h0PSIzMiIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjQiLz48cmVjdCB4PSIzNyIgeT0iMjAiIHdpZHRoPSIyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjMTA3YzQxIiBvcGFjaXR5PSIuNCIvPjxyZWN0IHg9IjEzIiB5PSIzMCIgd2lkdGg9IjM4IiBoZWlnaHQ9IjIiIGZpbGw9IiMxMDdjNDEiIG9wYWNpdHk9Ii40Ii8+PHJlY3QgeD0iMTMiIHk9IjQwIiB3aWR0aD0iMzgiIGhlaWdodD0iMiIgZmlsbD0iIzEwN2M0MSIgb3BhY2l0eT0iLjQiLz48L3N2Zz4=
+// @icon         https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/autohome-config-export.png
 // @homepageURL  https://github.com/travisoa/scriptbox
 // @downloadURL  https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js
 // @updateURL    https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js
@@ -21,6 +21,8 @@
   "use strict";
 
   const PANEL_ID = "autohome-config-export";
+  const FLOATING_ICON_URL =
+    "https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/autohome-config-export.png";
   const POS_KEY = "autohome-config-export-pos";
   const COLLAPSED_KEY = "autohome-config-export-collapsed";
   const PANEL_MARGIN = 12;
@@ -488,7 +490,8 @@
 #${PANEL_ID}{position:fixed;z-index:999999;right:18px;bottom:90px;font:13px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1f2329;}
 #${PANEL_ID} *{box-sizing:border-box;}
 #${PANEL_ID}.collapsed .ace-panel{display:none;}
-#${PANEL_ID} .ace-fab{width:${COLLAPSED_SIZE}px;height:${COLLAPSED_SIZE}px;border-radius:14px;background:#107c41;color:#fff;display:flex;align-items:center;justify-content:center;cursor:grab;box-shadow:0 6px 18px rgba(0,0,0,.22);user-select:none;font-size:11px;font-weight:600;text-align:center;letter-spacing:1px;}
+#${PANEL_ID} .ace-fab{width:${COLLAPSED_SIZE}px;height:${COLLAPSED_SIZE}px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;cursor:grab;box-shadow:0 6px 18px rgba(0,0,0,.22);user-select:none;overflow:hidden;}
+#${PANEL_ID} .ace-fab img{width:100%;height:100%;display:block;object-fit:cover;pointer-events:none;}
 #${PANEL_ID}:not(.collapsed) .ace-fab{display:none;}
 #${PANEL_ID} .ace-panel{width:300px;max-height:78vh;display:flex;flex-direction:column;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);overflow:hidden;}
 #${PANEL_ID} .ace-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#107c41;color:#fff;cursor:grab;}
@@ -523,7 +526,7 @@
   root.id = PANEL_ID;
   root.className = "collapsed";
   root.innerHTML = `
-    <div class="ace-fab" title="导出配置到 Excel">配置<br>导出</div>
+    <div class="ace-fab" title="导出配置到 Excel"><img src="${FLOATING_ICON_URL}" alt=""></div>
     <div class="ace-panel">
       <div class="ace-head"><b>配置导出 Excel</b><span class="ace-x" title="收起">—</span></div>
       <div class="ace-meta"></div>
