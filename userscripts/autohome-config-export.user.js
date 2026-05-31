@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.4
+// @version      0.3.5
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -490,8 +490,8 @@
 #${PANEL_ID}{position:fixed;z-index:999999;right:18px;bottom:90px;font:13px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1f2329;}
 #${PANEL_ID} *{box-sizing:border-box;}
 #${PANEL_ID}.collapsed .ace-panel{display:none;}
-#${PANEL_ID} .ace-fab{width:${COLLAPSED_SIZE}px;height:${COLLAPSED_SIZE}px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;cursor:grab;box-shadow:0 6px 18px rgba(0,0,0,.22);user-select:none;overflow:hidden;}
-#${PANEL_ID} .ace-fab img{width:100%;height:100%;display:block;object-fit:cover;pointer-events:none;}
+#${PANEL_ID} .ace-fab{width:${COLLAPSED_SIZE}px;height:${COLLAPSED_SIZE}px;border-radius:50%;background:#eef7ff;display:flex;align-items:center;justify-content:center;cursor:grab;box-shadow:0 6px 18px rgba(0,0,0,.22);user-select:none;overflow:hidden;}
+#${PANEL_ID} .ace-fab img{width:78%;height:78%;display:block;object-fit:contain;border-radius:50%;pointer-events:none;}
 #${PANEL_ID}:not(.collapsed) .ace-fab{display:none;}
 #${PANEL_ID} .ace-panel{width:300px;max-height:78vh;display:flex;flex-direction:column;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);overflow:hidden;}
 #${PANEL_ID} .ace-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#107c41;color:#fff;cursor:grab;}
