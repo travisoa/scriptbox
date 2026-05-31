@@ -2,7 +2,7 @@
 // @name         Autohome Config Export
 // @name:zh-CN   汽车之家配置导出 Excel
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.6
+// @version      0.3.7
 // @description  Export Autohome (car/www.autohome.com.cn) spec/config tables to Excel — by config category, by car group (energy type / drivetrain / model year, read from the page filters), or all at once. Supports both the legacy and new Next.js layouts.
 // @description:zh-CN  在汽车之家车型参数配置页导出配置表为 Excel：可按配置分类导出、按车型分组（能源类型/驱动形式/年款，取自表头筛选项）导出，也可一键导出全部；兼容旧版与新版（Next.js）两种配置页。
 // @author       Claude & travisoa
@@ -27,6 +27,7 @@
   const COLLAPSED_KEY = "autohome-config-export-collapsed";
   const PANEL_MARGIN = 12;
   const COLLAPSED_SIZE = 46;
+  const DRAG_THRESHOLD = 5;
 
   // 汽车之家把部分文字藏进 CSS ::before content（反爬）。下面这些类名家族用到。
   const KW_RE = /hs_kw\d+_\w+/;
@@ -785,6 +786,9 @@
       const offY = e.clientY - rect.top;
       let moved = false;
       const move = (ev) => {
+        const dx = ev.clientX - e.clientX;
+        const dy = ev.clientY - e.clientY;
+        if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
         moved = true;
         root.dataset.dragged = "1";
         applyPos(ev.clientX - offX, ev.clientY - offY, false);
@@ -829,8 +833,7 @@
   window.addEventListener("hashchange", () => setTimeout(onUrlChange, 0));
   setInterval(onUrlChange, 1500); // 兜底：捕捉未走 history API 的导航
 
-  // 还原位置 / 折叠状态
+  // 还原位置；每次进页面默认保持收起，避免上次展开状态影响浏览。
   const savedInit = readSavedPos();
   if (savedInit) applyPos(savedInit.left, savedInit.top, false);
-  if (localStorage.getItem(COLLAPSED_KEY) === "0") setCollapsed(false);
 })();
