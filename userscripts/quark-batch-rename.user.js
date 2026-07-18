@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.2
+// @version      0.5.3
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -1526,7 +1526,6 @@
       #${PANEL_ID} button:disabled { cursor: not-allowed; opacity: .62; transform: none; }
       #${PANEL_ID} button.qbr-primary { background: #245bff; border-color: #245bff; color: #fff; box-shadow: 0 6px 14px rgba(36, 91, 255, .22); }
       #${PANEL_ID} button.qbr-primary:hover { background: #174deb; border-color: #174deb; }
-      #${PANEL_ID} button.qbr-success { background: #0f766e; border-color: #0f766e; color: #fff; box-shadow: 0 6px 14px rgba(15, 118, 110, .18); }
       #${PANEL_ID} button.qbr-danger { color: #b42318; border-color: #f1b8b2; }
       #${PANEL_ID} .qbr-status {
         margin-top: 12px;
@@ -1660,7 +1659,7 @@
           <label class="qbr-check"><input name="deleteEmptyFolders" type="checkbox" />移动完成后删除确认已为空的相关子文件夹</label>
           <div class="qbr-actions qbr-two">
             <button type="button" class="qbr-scan-videos">扫描子目录</button>
-            <button type="button" class="qbr-success qbr-move-videos">移动到当前目录</button>
+            <button type="button" class="qbr-primary qbr-move-videos">移动到当前目录</button>
           </div>
           <div class="qbr-status qbr-tools-status">等待操作</div>
           <pre class="qbr-log"></pre>
