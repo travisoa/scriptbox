@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.3
+// @version      0.5.4
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
-// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMyNDViZmYiLz48cmVjdCB4PSIxNCIgeT0iMTIiIHdpZHRoPSIyOCIgaGVpZ2h0PSIzNiIgcng9IjMiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSIxOSIgeT0iMjAiIHdpZHRoPSIxOCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMjYiIHdpZHRoPSIxNCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMzIiIHdpZHRoPSIxOCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cmVjdCB4PSIxOSIgeT0iMzgiIHdpZHRoPSIxMCIgaGVpZ2h0PSIyIiBmaWxsPSIjM2I2ZGZmIiBvcGFjaXR5PSIuNTUiLz48cGF0aCBkPSJNMzYgMzhMNTIgMjJMNTcgMjdMNDEgNDNMMzQgNDRaIiBmaWxsPSIjZmZkMzRhIiBzdHJva2U9IiMxZDRkZDYiIHN0cm9rZS13aWR0aD0iMS40Ii8+PC9zdmc+
+// @icon         https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/assets/quark-file-toolbox.png
 // @homepageURL  https://github.com/travisoa/scriptbox
 // @downloadURL  https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js
 // @updateURL    https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js
