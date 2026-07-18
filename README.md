@@ -7,7 +7,7 @@
 | 脚本 | 文件 | 适用页面 | 用途 |
 | --- | --- | --- | --- |
 | Autohome Config Export（汽车之家配置导出） | `userscripts/autohome-config-export.user.js` | `https://*.autohome.com.cn/config/*`、`https://*.autohome.com.cn/spec/*` | 把汽车之家车型参数配置页导出为 Excel |
-| 夸克网盘批处理工具 | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 批量重命名、云解压、归集子目录视频与可选清理 |
+| 夸克网盘文件工具箱 | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 批量重命名、云解压、归集子目录视频与可选清理 |
 | 夸克网盘批量云解压（独立兼容版） | `userscripts/quark-cloud-unzip.user.js` | `https://pan.quark.cn/list*` | 保留给旧用户的独立版，请勿与综合脚本同时启用 |
 
 ## 安装
@@ -22,7 +22,7 @@
 | 脚本 | 安装地址 |
 | --- | --- |
 | 汽车之家配置导出 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js` |
-| 夸克网盘批处理工具（推荐） | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
+| 夸克网盘文件工具箱（推荐） | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
 | 夸克批量云解压（独立兼容版） | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-cloud-unzip.user.js` |
 
 更新脚本时，需要把脚本头部的 `@version` 改成更大的版本号，否则 Tampermonkey 可能不会自动拉取新版本。
@@ -80,7 +80,7 @@ MG4_配置参数_20260531.xlsx
 - 外观颜色、内饰颜色等行是否有值取决于页面是否提供可读文字；如果页面只用图片或色块表达，可能无法完整导出。
 - 导出结果仅来自页面当前展示数据，正式使用前建议抽查 Excel 与网页原表是否一致。
 
-## 夸克网盘批处理工具
+## 夸克网盘文件工具箱
 
 路径：`userscripts/quark-batch-rename.user.js`
 

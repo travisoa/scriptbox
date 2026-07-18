@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         夸克网盘批处理工具
+// @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.0
+// @version      0.5.1
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -1546,7 +1546,7 @@
       <div class="qbr-head">
         <div class="qbr-heading">
           <span class="qbr-icon">${ICON_SVG}</span>
-          <span>夸克批处理工具</span>
+          <span>夸克网盘文件工具箱</span>
         </div>
         <button type="button" class="qbr-toggle" data-keep-enabled="1" title="拖拽移动 / 点击展开收起">
           <span class="qbr-icon">${ICON_SVG}</span>
