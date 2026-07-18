@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         夸克网盘批量云解压
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.2.0
-// @description  批量提交夸克云解压，并可将子目录视频归集到当前目录根层。
+// @version      0.3.0
+// @description  批量提交夸克云解压，支持当前目录目标、完成后删除压缩包和子目录视频归集。
 // @author       Codex
 // @match        https://pan.quark.cn/list*
 // @homepageURL  https://github.com/travisoa/scriptbox
@@ -19,11 +19,13 @@
 
   const PANEL_ID = "codex-quark-cloud-unzip";
   const CONFIG_KEY = "codex-quark-cloud-unzip-config-v1";
+  const LEGACY_DEFAULT_DESTINATION = "/影视专区/电视剧📺/野狗骨头/Season 01";
   const DEFAULT_CONFIG = {
-    destinationPath: "/影视专区/电视剧📺/野狗骨头/Season 01",
+    destinationPath: "",
     archivePattern: "\\.(zip|rar|7z)$",
     extraSkip: "01-02, 03-04, 05-06",
     skipExisting: true,
+    deleteArchiveAfterComplete: false,
     deleteEmptyFolders: false,
   };
 
@@ -33,6 +35,8 @@
     submitted: [],
     skipped: [],
     failed: [],
+    deletedArchives: [],
+    confirmedCurrentTarget: "",
     movePlan: null,
     moved: [],
     deletedFolders: [],
@@ -44,6 +48,7 @@
   const VIDEO_EXT_RE = /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|rmvb)$/i;
   const MAX_SCAN_FOLDERS = 1000;
   const MOVE_BATCH_SIZE = 50;
+  const UNZIP_COMPLETION_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
   class StopRequestedError extends Error {
     constructor() {
@@ -54,7 +59,10 @@
 
   function loadConfig() {
     try {
-      return { ...DEFAULT_CONFIG, ...GM_getValue(CONFIG_KEY, {}) };
+      const stored = GM_getValue(CONFIG_KEY, {}) || {};
+      const config = { ...DEFAULT_CONFIG, ...stored };
+      if (config.destinationPath === LEGACY_DEFAULT_DESTINATION) config.destinationPath = "";
+      return config;
     } catch {
       return { ...DEFAULT_CONFIG };
     }
@@ -227,15 +235,19 @@
     });
   }
 
-  async function deleteEmptyFolder(folderFid) {
+  async function deleteDriveItems(fids) {
     return quarkJson("/1/clouddrive/file/delete", {
       method: "POST",
       body: JSON.stringify({
         action_type: 2,
-        filelist: [String(folderFid)],
+        filelist: fids.map(String),
         exclude_fids: [],
       }),
     });
+  }
+
+  async function deleteEmptyFolder(folderFid) {
+    return deleteDriveItems([folderFid]);
   }
 
   async function waitUntilItemsMissing(parentFid, fids, label, timeout = 30000) {
@@ -339,6 +351,20 @@
     ) || null;
   }
 
+  function documentTextOutsidePanel() {
+    const panel = document.getElementById(PANEL_ID);
+    const texts = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (!panel?.contains(node) && node.parentElement && isVisible(node.parentElement)) {
+        texts.push(node.nodeValue);
+      }
+      node = walker.nextNode();
+    }
+    return normalizeText(texts.join(" "));
+  }
+
   function clickElement(element) {
     if (!element) throw new Error("点击目标不存在");
     element.scrollIntoView({ block: "center", inline: "nearest" });
@@ -383,6 +409,17 @@
       const text = normalizeText(dialog.textContent);
       return isVisible(dialog) && text.includes("解压到") && text.includes("新建文件夹") && text.includes("确认");
     }) || null;
+  }
+
+  function readArchiveTargetLabel(dialog) {
+    const candidates = [...dialog.querySelectorAll("div, span, p")]
+      .filter((element) => isVisible(element))
+      .map((element) => normalizeText(element.textContent))
+      .filter((text) => text.includes("解压到") && text.includes("更改") && text.length < 300)
+      .sort((a, b) => a.length - b.length);
+    const text = candidates[0] || normalizeText(dialog.textContent);
+    const match = text.match(/解压到[：:\s]*([\s\S]*?)\s*更改/);
+    return normalizeText(match?.[1]);
   }
 
   function closeDialog(dialog) {
@@ -522,7 +559,97 @@
       .catch(() => true);
   }
 
-  async function processArchive(archiveName, destinationPath, knownExisting, skipExisting, log) {
+  function watchUnzipCompletion(archiveName) {
+    const baseName = archiveBaseName(archiveName);
+    let outcome = null;
+
+    const inspectText = (value) => {
+      if (outcome) return;
+      const text = normalizeText(value);
+      if (!text || text.length > 500 || (!text.includes(archiveName) && !text.includes(baseName))) return;
+      const errorMatch = text.match(/(解压失败|压缩包损坏|需要密码|会员.*限制)/);
+      if (errorMatch) {
+        outcome = { type: "error", message: errorMatch[1] };
+        return;
+      }
+      if (/(等待.*解压完成|正在解压|解压中)/.test(text)) return;
+      if (/(解压已完成|解压成功|已完成解压|云解压完成|解压完成)/.test(text)) {
+        outcome = { type: "completed" };
+      }
+    };
+
+    const observer = new MutationObserver((records) => {
+      const panel = document.getElementById(PANEL_ID);
+      const inspectNodeContext = (node) => {
+        let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        for (let depth = 0; current && depth < 5; depth += 1) {
+          if (panel?.contains(current)) return;
+          inspectText(current.textContent);
+          current = current.parentElement;
+        }
+      };
+      for (const record of records) {
+        if (record.type === "characterData") {
+          if (panel?.contains(record.target)) continue;
+          inspectNodeContext(record.target);
+        } else {
+          for (const node of record.addedNodes) {
+            if (panel?.contains(node)) continue;
+            inspectNodeContext(node);
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+    return {
+      async wait() {
+        const deadline = Date.now() + UNZIP_COMPLETION_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          if (state.stopRequested) throw new StopRequestedError();
+          if (outcome?.type === "completed") return;
+          if (outcome?.type === "error") throw new Error(outcome.message);
+          await sleep(1000);
+        }
+        throw new Error("等待页面确认解压完成超时；源压缩包已保留");
+      },
+      cancel() {
+        observer.disconnect();
+      },
+    };
+  }
+
+  async function findSourceArchive(archiveName, sourceFolderFid) {
+    const items = await listFolderItems(sourceFolderFid, { allowStop: false });
+    return items.find(
+      (item) => !isFolderItem(item) && item.file_name === archiveName,
+    ) || null;
+  }
+
+  async function deleteCompletedArchive(archiveName, archiveFid, sourceFolderFid, log) {
+    const archive = await findSourceArchive(archiveName, sourceFolderFid);
+    if (!archive) {
+      log(`解压已完成，但源压缩包 ${archiveName} 已不存在，无需删除`);
+      return false;
+    }
+    if (archive.fid !== archiveFid) {
+      throw new Error(`解压已完成，但 ${archiveName} 的文件 ID 已变化；为安全起见未删除`);
+    }
+    await deleteDriveItems([archive.fid]);
+    await waitUntilItemsMissing(sourceFolderFid, [archive.fid], `确认删除压缩包 ${archiveName}`);
+    log(`解压完成，已将源压缩包移入回收站：${archiveName}`);
+    return true;
+  }
+
+  async function processArchive(
+    archiveName,
+    destinationPath,
+    knownExisting,
+    skipExisting,
+    deleteArchiveAfterComplete,
+    sourceFolderFid,
+    log,
+  ) {
     const baseName = archiveBaseName(archiveName);
     if (knownExisting.has(baseName)) {
       return { status: "skipped", reason: "额外跳过列表或本批次已提交" };
@@ -532,6 +659,11 @@
       () => findArchiveNameElement(archiveName),
       `定位压缩包“${archiveName}”`,
     );
+    let sourceArchive = null;
+    if (deleteArchiveAfterComplete) {
+      sourceArchive = await findSourceArchive(archiveName, sourceFolderFid);
+      if (!sourceArchive) throw new Error(`无法确认源压缩包 ${archiveName} 的文件 ID，禁止自动删除`);
+    }
     doubleClickElement(archiveElement);
     const archiveDialog = await waitFor(
       () => findArchiveDialog(archiveName),
@@ -539,50 +671,105 @@
       20000,
     );
 
-    const change = findExactText(archiveDialog, "更改", "span, div, a");
-    if (!change) throw new Error("未找到“更改”目标目录入口");
-    clickElement(change);
-    const destinationDialog = await waitFor(
-      () => findDestinationDialog(),
-      "打开目标目录选择框",
-    );
-    const { item: targetItem, segments } = await locateDestination(destinationDialog, destinationPath);
-
-    if (skipExisting) {
-      const existingFolders = await readExistingTargetFolders(targetItem);
-      for (const folder of existingFolders) knownExisting.add(folder);
-      if (knownExisting.has(baseName)) {
-        log(`跳过 ${archiveName}：目标目录已存在 ${baseName}`);
-        await cancelDestinationAndCloseArchive(destinationDialog, archiveDialog);
-        return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
+    let refreshedArchiveDialog = archiveDialog;
+    if (!destinationPath) {
+      const currentTargetLabel = readArchiveTargetLabel(archiveDialog);
+      if (!currentTargetLabel) {
+        throw new Error("预览框未显示解压目标，无法确认当前文件夹默认值");
       }
-    }
+      if (state.confirmedCurrentTarget !== currentTargetLabel) {
+        const confirmed = window.confirm(
+          `目标目录留空，夸克预览框当前显示：\n${currentTargetLabel}\n\n` +
+          "请确认这就是当前文件夹。",
+        );
+        if (!confirmed) {
+          closeDialog(archiveDialog);
+          throw new Error("未确认当前文件夹目标，已停止提交");
+        }
+        state.confirmedCurrentTarget = currentTargetLabel;
+      }
+      if (skipExisting) {
+        const currentItems = await listFolderItems(sourceFolderFid);
+        for (const folder of currentItems.filter(isFolderItem)) knownExisting.add(folder.file_name);
+        if (knownExisting.has(baseName)) {
+          log(`跳过 ${archiveName}：当前文件夹已存在 ${baseName}`);
+          closeDialog(archiveDialog);
+          await waitFor(
+            () => !document.body.contains(archiveDialog) || !isVisible(archiveDialog),
+            "关闭压缩包预览",
+            5000,
+          ).catch(() => true);
+          return { status: "skipped", reason: `当前文件夹已存在 ${baseName}` };
+        }
+      }
+      log(`${archiveName} 使用已确认的当前文件夹目标：${currentTargetLabel}`);
+    } else {
+      const change = findExactText(archiveDialog, "更改", "span, div, a");
+      if (!change) throw new Error("未找到“更改”目标目录入口");
+      clickElement(change);
+      const destinationDialog = await waitFor(
+        () => findDestinationDialog(),
+        "打开目标目录选择框",
+      );
+      const { item: targetItem, segments } = await locateDestination(destinationDialog, destinationPath);
 
-    await selectDestination(destinationDialog, targetItem);
-    const refreshedArchiveDialog = await waitFor(
-      () => findArchiveDialog(archiveName),
-      `返回压缩包“${archiveName}”预览`,
-    );
-    const targetTail = segments.at(-1);
-    if (!normalizeText(refreshedArchiveDialog.textContent).includes(`/${targetTail}`)) {
-      throw new Error(`目标路径回显不包含 /${targetTail}，禁止提交`);
+      if (skipExisting) {
+        const existingFolders = await readExistingTargetFolders(targetItem);
+        for (const folder of existingFolders) knownExisting.add(folder);
+        if (knownExisting.has(baseName)) {
+          log(`跳过 ${archiveName}：目标目录已存在 ${baseName}`);
+          await cancelDestinationAndCloseArchive(destinationDialog, archiveDialog);
+          return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
+        }
+      }
+
+      await selectDestination(destinationDialog, targetItem);
+      refreshedArchiveDialog = await waitFor(
+        () => findArchiveDialog(archiveName),
+        `返回压缩包“${archiveName}”预览`,
+      );
+      const targetTail = segments.at(-1);
+      if (!normalizeText(refreshedArchiveDialog.textContent).includes(`/${targetTail}`)) {
+        throw new Error(`目标路径回显不包含 /${targetTail}，禁止提交`);
+      }
     }
 
     const submit = findButton(refreshedArchiveDialog, "解压全部文件");
     if (!submit) throw new Error("未找到“解压全部文件”按钮");
-    clickElement(submit);
+    const completionWatcher = deleteArchiveAfterComplete ? watchUnzipCompletion(archiveName) : null;
+    try {
+      clickElement(submit);
 
-    const acknowledged = await waitFor(() => {
-      const currentDialog = findArchiveDialog(archiveName);
-      const pageText = normalizeText(document.body.textContent);
-      const errorMatch = pageText.match(/(解压失败|压缩包损坏|需要密码|会员.*限制)/);
-      if (errorMatch) throw new Error(errorMatch[1]);
-      return !currentDialog || /解压(任务|中|成功|完成)|已加入/.test(pageText);
-    }, `提交“${archiveName}”`, 20000);
+      const acknowledged = await waitFor(() => {
+        const currentDialog = findArchiveDialog(archiveName);
+        const pageText = documentTextOutsidePanel();
+        const errorMatch = pageText.match(/(解压失败|压缩包损坏|需要密码|会员.*限制)/);
+        if (errorMatch) throw new Error(errorMatch[1]);
+        return !currentDialog || /解压(任务|中|成功|完成)|已加入/.test(pageText);
+      }, `提交“${archiveName}”`, 20000);
 
-    if (!acknowledged) throw new Error("页面未确认任务已受理");
-    knownExisting.add(baseName);
-    return { status: "submitted" };
+      if (!acknowledged) throw new Error("页面未确认任务已受理");
+      knownExisting.add(baseName);
+      let deleted = false;
+      if (completionWatcher) {
+        log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
+        try {
+          await completionWatcher.wait();
+          deleted = await deleteCompletedArchive(
+            archiveName,
+            sourceArchive.fid,
+            sourceFolderFid,
+            log,
+          );
+        } catch (error) {
+          error.archiveSubmitted = true;
+          throw error;
+        }
+      }
+      return { status: "submitted", deleted };
+    } finally {
+      completionWatcher?.cancel();
+    }
   }
 
   function createPanel() {
@@ -593,10 +780,11 @@
     panel.innerHTML = `
       <header><strong>夸克批量云解压</strong><button data-action="collapse" title="收起">−</button></header>
       <div class="quark-unzip-body">
-        <label>目标目录<input data-field="destination" type="text"></label>
+        <label>目标目录<input data-field="destination" type="text" placeholder="留空表示当前文件夹（默认）"></label>
         <label>压缩包正则<input data-field="pattern" type="text"></label>
         <label>额外跳过<input data-field="skip" type="text" placeholder="01-02, 03-04"></label>
         <label class="checkbox"><input data-field="skip-existing" type="checkbox"> 跳过目标目录已有同名文件夹</label>
+        <label class="checkbox"><input data-field="delete-archive" type="checkbox"> 解压完成后删除源压缩包（移入回收站）</label>
         <div class="actions">
           <button data-action="scan">扫描</button>
           <button data-action="start" class="primary">开始云解压</button>
@@ -640,6 +828,7 @@
     const patternInput = panel.querySelector('[data-field="pattern"]');
     const skipInput = panel.querySelector('[data-field="skip"]');
     const skipExistingInput = panel.querySelector('[data-field="skip-existing"]');
+    const deleteArchiveInput = panel.querySelector('[data-field="delete-archive"]');
     const deleteEmptyFoldersInput = panel.querySelector('[data-field="delete-empty-folders"]');
     const scanArchiveButton = panel.querySelector('[data-action="scan"]');
     const startButton = panel.querySelector('[data-action="start"]');
@@ -653,6 +842,7 @@
     patternInput.value = config.archivePattern;
     skipInput.value = config.extraSkip;
     skipExistingInput.checked = config.skipExisting;
+    deleteArchiveInput.checked = config.deleteArchiveAfterComplete;
     deleteEmptyFoldersInput.checked = config.deleteEmptyFolders;
 
     const log = (message) => {
@@ -674,9 +864,9 @@
         archivePattern: patternInput.value.trim(),
         extraSkip: skipInput.value.trim(),
         skipExisting: skipExistingInput.checked,
+        deleteArchiveAfterComplete: deleteArchiveInput.checked,
         deleteEmptyFolders: deleteEmptyFoldersInput.checked,
       };
-      if (!nextConfig.destinationPath) throw new Error("请填写目标目录");
       const pattern = new RegExp(nextConfig.archivePattern, "i");
       saveConfig(nextConfig);
       return { config: nextConfig, pattern };
@@ -688,6 +878,10 @@
 
     deleteEmptyFoldersInput.addEventListener("change", () => {
       saveConfig({ ...loadConfig(), deleteEmptyFolders: deleteEmptyFoldersInput.checked });
+    });
+
+    deleteArchiveInput.addEventListener("change", () => {
+      saveConfig({ ...loadConfig(), deleteArchiveAfterComplete: deleteArchiveInput.checked });
     });
 
     panel.querySelector('[data-action="scan"]').addEventListener("click", () => {
@@ -705,7 +899,7 @@
       state.stopRequested = true;
       stopButton.disabled = true;
       setStatus("将在当前安全步骤结束后停止");
-      log("收到停止请求；已提交的云解压任务和已完成的文件移动不会撤销");
+      log("收到停止请求；已提交的任务、已完成的移动和已移入回收站的项目不会自动撤销");
     });
 
     scanVideosButton.addEventListener("click", async () => {
@@ -803,21 +997,40 @@
         setStatus("当前目录没有识别到压缩包");
         return;
       }
+      if (
+        form.config.deleteArchiveAfterComplete &&
+        !window.confirm(
+          `将依次解压 ${archives.length} 个压缩包。\n` +
+          "页面确认每个任务解压完成后，对应源压缩包会被移入回收站。\n\n是否继续？",
+        )
+      ) {
+        return;
+      }
 
       const knownExisting = new Set(
         form.config.extraSkip.split(/[,，\n]/).map((name) => name.trim()).filter(Boolean),
       );
+      const sourceFolderFid = currentFolderFid();
       state.running = true;
       state.stopRequested = false;
       state.submitted = [];
       state.skipped = [];
       state.failed = [];
+      state.deletedArchives = [];
+      state.confirmedCurrentTarget = "";
       setBusy(true);
-      log(`开始：${archives.length} 个压缩包 → ${form.config.destinationPath}`);
+      const targetLabel = form.config.destinationPath || "当前文件夹";
+      log(
+        `开始：${archives.length} 个压缩包 → ${targetLabel}` +
+        (form.config.deleteArchiveAfterComplete ? "；解压完成后删除源压缩包" : ""),
+      );
 
       try {
         for (let index = 0; index < archives.length; index += 1) {
           if (state.stopRequested) throw new StopRequestedError();
+          if (currentFolderFid() !== sourceFolderFid) {
+            throw new Error("当前文件夹已切换；为避免操作错误目录，已停止批次");
+          }
           const archiveName = archives[index];
           setStatus(`[${index + 1}/${archives.length}] 正在处理 ${archiveName}`);
           log(`处理 ${archiveName}`);
@@ -827,23 +1040,32 @@
               form.config.destinationPath,
               knownExisting,
               form.config.skipExisting,
+              form.config.deleteArchiveAfterComplete,
+              sourceFolderFid,
               log,
             );
             if (result.status === "submitted") {
               state.submitted.push(archiveName);
-              log(`已提交 ${archiveName}`);
+              if (result.deleted) state.deletedArchives.push(archiveName);
+              log(result.deleted ? `已完成并删除源压缩包 ${archiveName}` : `已提交 ${archiveName}`);
             } else {
               state.skipped.push({ archiveName, reason: result.reason });
               log(`已跳过 ${archiveName}：${result.reason}`);
             }
           } catch (error) {
+            if (error.archiveSubmitted && !state.submitted.includes(archiveName)) {
+              state.submitted.push(archiveName);
+              log(`任务已提交，但未删除源压缩包 ${archiveName}：${error.message}`);
+            }
             if (error instanceof StopRequestedError) throw error;
             state.failed.push({ archiveName, reason: error.message });
             log(`失败 ${archiveName}：${error.message}`);
             throw error;
           }
         }
-        setStatus(`完成：提交 ${state.submitted.length}，跳过 ${state.skipped.length}`);
+        setStatus(
+          `完成：提交 ${state.submitted.length}，跳过 ${state.skipped.length}，删除压缩包 ${state.deletedArchives.length}`,
+        );
       } catch (error) {
         if (error instanceof StopRequestedError) {
           setStatus(`已停止：提交 ${state.submitted.length}，跳过 ${state.skipped.length}`);
@@ -853,7 +1075,10 @@
       } finally {
         state.running = false;
         setBusy(false);
-        log(`汇总：提交 ${state.submitted.length}，跳过 ${state.skipped.length}，失败 ${state.failed.length}`);
+        log(
+          `汇总：提交 ${state.submitted.length}，跳过 ${state.skipped.length}，` +
+          `删除压缩包 ${state.deletedArchives.length}，失败 ${state.failed.length}`,
+        );
       }
     });
   }
