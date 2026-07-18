@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | Autohome Config Export（汽车之家配置导出） | `userscripts/autohome-config-export.user.js` | `https://*.autohome.com.cn/config/*`、`https://*.autohome.com.cn/spec/*` | 把汽车之家车型参数配置页导出为 Excel |
 | Quark Batch Rename Helper | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 在夸克网盘网页端批量整理视频文件名 |
+| 夸克网盘批量云解压 | `userscripts/quark-cloud-unzip.user.js` | `https://pan.quark.cn/list*` | 批量提交云解压任务，并跳过目标目录中的已有文件夹 |
 
 ## 安装
 
@@ -22,6 +23,7 @@
 | --- | --- |
 | 汽车之家配置导出 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js` |
 | 夸克批量重命名 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
+| 夸克批量云解压 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-cloud-unzip.user.js` |
 
 更新脚本时，需要把脚本头部的 `@version` 改成更大的版本号，否则 Tampermonkey 可能不会自动拉取新版本。
 
@@ -125,6 +127,30 @@ MG4_配置参数_20260531.xlsx
 - 脚本只匹配 `https://pan.quark.cn/*`。
 - 批量执行前请先预览，确认文件名符合预期。
 - 夸克网盘接口或页面结构变动时，脚本可能需要同步更新。
+
+## 夸克网盘批量云解压
+
+路径：`userscripts/quark-cloud-unzip.user.js`
+
+### 功能
+
+- 扫描当前目录中的 ZIP、RAR 和 7Z 压缩包，并逐个提交服务端云解压任务。
+- 支持填写目标目录和自定义压缩包匹配规则。
+- 可按名称额外跳过压缩包，也可跳过目标目录中已有的同名文件夹。
+- 支持中途停止；已提交的云解压任务不会被撤销。
+- 提交前校验目标路径回显，降低解压到错误目录的风险。
+
+### 使用
+
+1. 打开夸克网盘文件列表页面。
+2. 在右下角面板中填写目标目录，按需调整匹配规则和跳过项。
+3. 点击「扫描」确认待处理压缩包数量。
+4. 点击「开始云解压」，并根据面板日志检查提交、跳过和失败结果。
+
+### 注意
+
+- 脚本依赖夸克网盘当前网页交互和弹窗结构；页面改版后可能需要更新选择器。
+- 批量执行前请先核对目标目录。停止操作只阻止继续提交，不会撤销已提交的任务。
 
 ## 更换夸克脚本悬浮图标
 
