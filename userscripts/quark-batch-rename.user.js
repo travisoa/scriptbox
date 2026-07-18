@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.1
+// @version      0.5.2
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -1449,11 +1449,40 @@
         align-items: flex-start;
         gap: 8px;
         margin-top: 10px;
+        padding: 7px 8px;
+        border: 1px solid #e1e5ee;
+        border-radius: 8px;
+        background: #fff;
         color: #4b5568;
         font-weight: 500;
         line-height: 1.45;
+        cursor: pointer;
       }
-      #${PANEL_ID} label.qbr-check input { width: 16px; height: 16px; margin: 1px 0 0; flex: 0 0 auto; }
+      #${PANEL_ID} label.qbr-check:has(input:checked) {
+        border-color: #9ab1ff;
+        background: #eef3ff;
+        color: #1746cc;
+      }
+      #${PANEL_ID} label.qbr-check input[type="checkbox"] {
+        -webkit-appearance: checkbox !important;
+        appearance: auto !important;
+        position: static !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px;
+        margin: 1px 0 0 !important;
+        padding: 0 !important;
+        border: initial !important;
+        border-radius: initial !important;
+        background: initial !important;
+        box-shadow: none !important;
+        accent-color: #245bff;
+        flex: 0 0 auto;
+        cursor: pointer;
+      }
       #${PANEL_ID} .qbr-field { display: none; }
       #${PANEL_ID} .qbr-field.is-active { display: block; }
       #${PANEL_ID} .qbr-help {
