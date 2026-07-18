@@ -7,8 +7,8 @@
 | 脚本 | 文件 | 适用页面 | 用途 |
 | --- | --- | --- | --- |
 | Autohome Config Export（汽车之家配置导出） | `userscripts/autohome-config-export.user.js` | `https://*.autohome.com.cn/config/*`、`https://*.autohome.com.cn/spec/*` | 把汽车之家车型参数配置页导出为 Excel |
-| Quark Batch Rename Helper | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 在夸克网盘网页端批量整理视频文件名 |
-| 夸克网盘批量云解压 | `userscripts/quark-cloud-unzip.user.js` | `https://pan.quark.cn/list*` | 批量提交云解压任务，并把子目录视频归集到当前目录 |
+| 夸克网盘批处理工具 | `userscripts/quark-batch-rename.user.js` | `https://pan.quark.cn/*` | 批量重命名、云解压、归集子目录视频与可选清理 |
+| 夸克网盘批量云解压（独立兼容版） | `userscripts/quark-cloud-unzip.user.js` | `https://pan.quark.cn/list*` | 保留给旧用户的独立版，请勿与综合脚本同时启用 |
 
 ## 安装
 
@@ -22,8 +22,8 @@
 | 脚本 | 安装地址 |
 | --- | --- |
 | 汽车之家配置导出 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/autohome-config-export.user.js` |
-| 夸克批量重命名 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
-| 夸克批量云解压 | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-cloud-unzip.user.js` |
+| 夸克网盘批处理工具（推荐） | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-batch-rename.user.js` |
+| 夸克批量云解压（独立兼容版） | `https://raw.githubusercontent.com/travisoa/scriptbox/main/userscripts/quark-cloud-unzip.user.js` |
 
 更新脚本时，需要把脚本头部的 `@version` 改成更大的版本号，否则 Tampermonkey 可能不会自动拉取新版本。
 
@@ -80,16 +80,20 @@ MG4_配置参数_20260531.xlsx
 - 外观颜色、内饰颜色等行是否有值取决于页面是否提供可读文字；如果页面只用图片或色块表达，可能无法完整导出。
 - 导出结果仅来自页面当前展示数据，正式使用前建议抽查 Excel 与网页原表是否一致。
 
-## Quark Batch Rename Helper
+## 夸克网盘批处理工具
 
 路径：`userscripts/quark-batch-rename.user.js`
 
 ### 功能
 
-- 右下角浮动图标入口可拖拽，点击后展开批量重命名面板。
+- 右下角浮动图标入口可拖拽，面板内提供「重命名」「云解压」「视频归集」三个页签。
 - 支持已勾选可见视频、当前目录全部视频等文件来源。
 - 支持添加前缀、正则替换、删除英文剧名、中文集数转 `SxxExx`、整理为 `剧名.SxxExx`。
 - 执行前可预览新旧文件名。
+- 解压目标默认为当前文件夹，也可填写完整路径；可选择在页面确认完成后删除源压缩包。
+- 可递归识别子目录视频并移动到当前目录根层，同名文件自动跳过。
+- 可选择删除因移动而变空的相关文件夹；删除前会重新确认目录为空。
+- 云解压和视频归集支持中途停止，已经完成的操作不会自动撤销。
 - 输入框默认只显示灰色示例，不会把示例当作实际规则。
 - 悬浮图标可以替换为自定义图标，详见「更换夸克脚本悬浮图标」。
 
@@ -100,6 +104,8 @@ MG4_配置参数_20260531.xlsx
 3. 点击浮动图标展开面板。
 4. 选择重命名规则并填写参数。
 5. 点击读取、预览，确认无误后执行。
+
+云解压和视频归集直接切换到对应页签：先扫描并核对范围，再勾选所需的删除选项，最后在确认框中复核后执行。
 
 ### 使用示例：把 `第1集` 改成 `S01E01`
 
@@ -126,11 +132,14 @@ MG4_配置参数_20260531.xlsx
 
 - 脚本只匹配 `https://pan.quark.cn/*`。
 - 批量执行前请先预览，确认文件名符合预期。
+- 解压完成后删除压缩包、移动后删除空文件夹均默认关闭。
 - 夸克网盘接口或页面结构变动时，脚本可能需要同步更新。
 
-## 夸克网盘批量云解压
+## 夸克网盘批量云解压（独立兼容版）
 
 路径：`userscripts/quark-cloud-unzip.user.js`
+
+该脚本的功能已整合进 `quark-batch-rename.user.js`。新安装推荐使用综合脚本；旧版仅为兼容已有安装保留，两者不要同时启用，以免页面出现重复面板或重复操作。
 
 ### 功能
 
