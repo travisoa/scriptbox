@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘批量云解压
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  批量提交夸克云解压，支持当前目录目标、完成后删除压缩包和子目录视频归集。
 // @author       Codex
 // @match        https://pan.quark.cn/list*
@@ -36,7 +36,6 @@
     skipped: [],
     failed: [],
     deletedArchives: [],
-    confirmedCurrentTarget: "",
     movePlan: null,
     moved: [],
     deletedFolders: [],
@@ -77,6 +76,29 @@
     const last = parts[parts.length - 1] || "";
     if (!last || last === "all" || last === "root") return "0";
     return last.split("-")[0] || "0";
+  }
+
+  function currentFolderDestination(sourceFolderFid) {
+    const hash = String(location.hash || "");
+    if (!/^#?\/list\/all(?:\/|$)/.test(hash)) {
+      throw new Error("无法从当前页面确认源目录完整路径，禁止提交");
+    }
+    const parts = hash.replace(/^#?\/list\/all\/?/, "").split("/").filter(Boolean);
+    const segments = parts.map((part) => {
+      const match = part.match(/^([a-f0-9]{32})-(.+)$/i);
+      if (!match) throw new Error("当前目录路由缺少完整名称，禁止提交");
+      return decodeURIComponent(match[2]);
+    });
+    if (currentFolderFid() !== String(sourceFolderFid)) {
+      throw new Error("当前文件夹已切换；为避免操作错误目录，已停止批次");
+    }
+    return segments;
+  }
+
+  function destinationMatches(label, segments) {
+    const actual = normalizeDestinationPath(label);
+    return actual.length === segments.length &&
+      actual.every((segment, index) => normalizeText(segment) === normalizeText(segments[index]));
   }
 
   async function quarkJson(path, options = {}) {
@@ -327,10 +349,12 @@
     let lastError;
     while (Date.now() < deadline) {
       if (state.stopRequested) throw new StopRequestedError();
+      throwIfUnzipBlocked();
       try {
         const value = getter();
         if (value) return value;
       } catch (error) {
+        if (error instanceof UnzipPageError) throw error;
         lastError = error;
       }
       await sleep(interval);
@@ -352,17 +376,44 @@
   }
 
   function documentTextOutsidePanel() {
-    const panel = document.getElementById(PANEL_ID);
+    const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
+      .map((id) => document.getElementById(id)).filter(Boolean);
     const texts = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     while (node) {
-      if (!panel?.contains(node) && node.parentElement && isVisible(node.parentElement)) {
+      if (!panels.some((panel) => panel.contains(node)) && node.parentElement && isVisible(node.parentElement)) {
         texts.push(node.nodeValue);
       }
       node = walker.nextNode();
     }
     return normalizeText(texts.join(" "));
+  }
+
+  class UnzipPageError extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "UnzipPageError";
+    }
+  }
+
+  function readUnzipPageError(text) {
+    return normalizeText(text).match(
+      /(账号涉嫌违规已被封禁|账号[^。！？]{0,30}(?:被封禁|已封禁|被冻结|被禁用)|暂时无法使用该功能|解压失败|压缩包损坏|需要密码|密码错误|权限不足|无权限|访问被拒绝|未登录|登录已失效|登录过期|请先登录|会员[^。！？]{0,30}(?:限制|不足)|空间不足|容量不足|操作太频繁|请求过于频繁)/,
+    )?.[0] || "";
+  }
+
+  function throwIfUnzipBlocked() {
+    const message = readUnzipPageError(documentTextOutsidePanel());
+    if (message) throw new UnzipPageError(`${message}；源压缩包已保留`);
+  }
+
+  function ensureUnzipSafe(sourceFolderFid) {
+    if (state.stopRequested) throw new StopRequestedError();
+    if (currentFolderFid() !== String(sourceFolderFid)) {
+      throw new Error("当前文件夹已切换；为避免操作错误目录，已停止批次");
+    }
+    throwIfUnzipBlocked();
   }
 
   function clickElement(element) {
@@ -506,7 +557,6 @@
     const segments = path.split("/").map((part) => part.trim()).filter(Boolean);
     if (segments[0] === "我的网盘") segments.shift();
     if (segments[0] === "全部文件") segments.shift();
-    if (!segments.length) throw new Error("目标目录不能是根目录");
     return segments;
   }
 
@@ -559,63 +609,105 @@
       .catch(() => true);
   }
 
-  function watchUnzipCompletion(archiveName) {
-    const baseName = archiveBaseName(archiveName);
-    let outcome = null;
-
-    const inspectText = (value) => {
-      if (outcome) return;
+  function watchUnzipTask(archiveName) {
+    let acknowledged = false;
+    let completed = false;
+    let failure = "";
+    const escapedName = archiveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const archiveNamePattern = new RegExp(`(^|[^A-Za-z0-9_.-])${escapedName}(?![A-Za-z0-9_.-])`);
+    const completionPattern = /(解压已完成|解压成功|已完成解压|云解压完成|解压完成)/;
+    const pendingPattern = /(等待.*解压完成|正在解压|解压中|未完成|尚未|没有完成|未解压|解压未完成)/;
+    const submissionPattern = /(已加入.{0,12}(解压|任务)|解压任务.{0,12}(已提交|提交成功|创建成功))/;
+    const acknowledgementPattern = /(已加入.{0,12}(解压|任务)|解压任务.{0,12}(已提交|提交成功|创建成功)|正在解压|解压中|开始解压|解压成功|解压已完成|解压完成)/;
+    const visibleText = (element) => {
+      const texts = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        if (node.parentElement && isVisible(node.parentElement)) texts.push(node.nodeValue);
+        node = walker.nextNode();
+      }
+      return normalizeText(texts.join(""));
+    };
+    // 旧成功消息即使被重新插入，也不能证明本次任务已经完成。
+    const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
+      .map((id) => document.getElementById(id)).filter(Boolean);
+    const previousTexts = new Set([...document.querySelectorAll("div, span, p, li, tr")]
+      .filter((element) => isVisible(element) &&
+        !panels.some((panel) => panel.contains(element) || element.contains(panel)))
+      .map(visibleText));
+    // 没有任务 ID 时，旧的同名完成记录与本次完成无法可靠区分，保留源文件。
+    const hadPreviousCompletion = [...previousTexts].some((text) => text.length <= 500 &&
+      archiveNamePattern.test(text) && completionPattern.test(text) && !pendingPattern.test(text));
+    const inspectText = (value, statusChanged) => {
       const text = normalizeText(value);
-      if (!text || text.length > 500 || (!text.includes(archiveName) && !text.includes(baseName))) return;
-      const errorMatch = text.match(/(解压失败|压缩包损坏|需要密码|会员.*限制)/);
-      if (errorMatch) {
-        outcome = { type: "error", message: errorMatch[1] };
+      if (!text || text.length > 500) return;
+      const error = readUnzipPageError(text);
+      if (error) {
+        failure = error;
         return;
       }
-      if (/(等待.*解压完成|正在解压|解压中)/.test(text)) return;
-      if (/(解压已完成|解压成功|已完成解压|云解压完成|解压完成)/.test(text)) {
-        outcome = { type: "completed" };
+      if (!statusChanged || (previousTexts.has(text) && !submissionPattern.test(text))) return;
+      if (hadPreviousCompletion && completionPattern.test(text) && !pendingPattern.test(text)) return;
+      const mentionsArchive = archiveNamePattern.test(text);
+      // 不把包含多条压缩包任务的祖先文本当成本条任务的完成证据。
+      const hasOtherArchive = /\.(zip|rar|7z)(?![A-Za-z0-9_.-])/i.test(text.replace(archiveNamePattern, ""));
+      if (hasOtherArchive) return;
+      if (mentionsArchive && !pendingPattern.test(text) && completionPattern.test(text)) {
+        completed = true;
+        acknowledged = true;
+      } else if ((mentionsArchive ? acknowledgementPattern : submissionPattern).test(text) &&
+        !/(未提交|提交失败|未加入|尚未|等待.*解压完成)/.test(text)) {
+        acknowledged = true;
       }
     };
-
     const observer = new MutationObserver((records) => {
-      const panel = document.getElementById(PANEL_ID);
+      const currentPanels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
+        .map((id) => document.getElementById(id)).filter(Boolean);
       const inspectNodeContext = (node) => {
+        const changedText = node?.nodeType === Node.TEXT_NODE ? normalizeText(node.nodeValue) :
+          (node instanceof HTMLElement ? visibleText(node) : "");
+        const statusChanged = acknowledgementPattern.test(changedText) || submissionPattern.test(changedText);
         let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-        for (let depth = 0; current && depth < 5; depth += 1) {
-          if (panel?.contains(current)) return;
-          inspectText(current.textContent);
+        for (let depth = 0; current && depth < 4; depth += 1) {
+          if (current === document.body || currentPanels.some((panel) => panel.contains(current) || current.contains(panel))) return;
+          if (isVisible(current)) inspectText(visibleText(current), statusChanged);
           current = current.parentElement;
         }
       };
       for (const record of records) {
-        if (record.type === "characterData") {
-          if (panel?.contains(record.target)) continue;
-          inspectNodeContext(record.target);
-        } else {
-          for (const node of record.addedNodes) {
-            if (panel?.contains(node)) continue;
-            inspectNodeContext(node);
-          }
-        }
+        if (record.type === "characterData") inspectNodeContext(record.target);
+        else for (const node of record.addedNodes) inspectNodeContext(node);
       }
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
+    const checkErrors = () => {
+      if (state.stopRequested) throw new StopRequestedError();
+      if (failure) throw new UnzipPageError(`${failure}；源压缩包已保留`);
+      throwIfUnzipBlocked();
+    };
+    const waitForOutcome = async (isDone, timeout, timeoutMessage) => {
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        checkErrors();
+        if (isDone()) return;
+        await sleep(250);
+      }
+      throw new Error(timeoutMessage);
+    };
     return {
-      async wait() {
-        const deadline = Date.now() + UNZIP_COMPLETION_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-          if (state.stopRequested) throw new StopRequestedError();
-          if (outcome?.type === "completed") return;
-          if (outcome?.type === "error") throw new Error(outcome.message);
-          await sleep(1000);
+      checkErrors,
+      waitForAcknowledgement(timeout = 20000) {
+        return waitForOutcome(() => acknowledged, timeout, "页面未明确确认解压任务已受理；源压缩包已保留，请核查任务列表后再重试");
+      },
+      wait(timeout = UNZIP_COMPLETION_TIMEOUT_MS) {
+        if (hadPreviousCompletion) {
+          return Promise.reject(new Error("页面已有同名压缩包的旧完成记录，无法可靠确认本次任务；源压缩包已保留，请核查任务列表"));
         }
-        throw new Error("等待页面确认解压完成超时；源压缩包已保留");
+        return waitForOutcome(() => completed, timeout, "等待页面确认解压完成超时；源压缩包已保留");
       },
-      cancel() {
-        observer.disconnect();
-      },
+      cancel() { observer.disconnect(); },
     };
   }
 
@@ -626,8 +718,11 @@
     ) || null;
   }
 
-  async function deleteCompletedArchive(archiveName, archiveFid, sourceFolderFid, log) {
+  async function deleteCompletedArchive(archiveName, archiveFid, sourceFolderFid, log, checkTaskErrors = () => {}) {
+    ensureUnzipSafe(sourceFolderFid);
     const archive = await findSourceArchive(archiveName, sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid);
+    checkTaskErrors();
     if (!archive) {
       log(`解压已完成，但源压缩包 ${archiveName} 已不存在，无需删除`);
       return false;
@@ -650,117 +745,65 @@
     sourceFolderFid,
     log,
   ) {
+    ensureUnzipSafe(sourceFolderFid);
     const baseName = archiveBaseName(archiveName);
-    if (knownExisting.has(baseName)) {
-      return { status: "skipped", reason: "额外跳过列表或本批次已提交" };
+    if (knownExisting.has(baseName)) return { status: "skipped", reason: "额外跳过列表或本批次已提交" };
+    const segments = destinationPath ? normalizeDestinationPath(destinationPath) : currentFolderDestination(sourceFolderFid);
+    const targetPath = `全部文件${segments.length ? `/${segments.join("/")}` : ""}`;
+    if (!destinationPath && skipExisting) {
+      const currentItems = await listFolderItems(sourceFolderFid);
+      for (const folder of currentItems.filter(isFolderItem)) knownExisting.add(folder.file_name);
+      if (knownExisting.has(baseName)) return { status: "skipped", reason: `当前文件夹已存在 ${baseName}` };
     }
-
-    const archiveElement = await waitFor(
-      () => findArchiveNameElement(archiveName),
-      `定位压缩包“${archiveName}”`,
-    );
+    const archiveElement = await waitFor(() => findArchiveNameElement(archiveName), `定位压缩包“${archiveName}”`);
     let sourceArchive = null;
     if (deleteArchiveAfterComplete) {
       sourceArchive = await findSourceArchive(archiveName, sourceFolderFid);
       if (!sourceArchive) throw new Error(`无法确认源压缩包 ${archiveName} 的文件 ID，禁止自动删除`);
     }
+    ensureUnzipSafe(sourceFolderFid);
     doubleClickElement(archiveElement);
-    const archiveDialog = await waitFor(
-      () => findArchiveDialog(archiveName),
-      `打开压缩包“${archiveName}”`,
-      20000,
-    );
-
+    const archiveDialog = await waitFor(() => findArchiveDialog(archiveName), `打开压缩包“${archiveName}”`, 20000);
     let refreshedArchiveDialog = archiveDialog;
-    if (!destinationPath) {
-      const currentTargetLabel = readArchiveTargetLabel(archiveDialog);
-      if (!currentTargetLabel) {
-        throw new Error("预览框未显示解压目标，无法确认当前文件夹默认值");
-      }
-      if (state.confirmedCurrentTarget !== currentTargetLabel) {
-        const confirmed = window.confirm(
-          `目标目录留空，夸克预览框当前显示：\n${currentTargetLabel}\n\n` +
-          "请确认这就是当前文件夹。",
-        );
-        if (!confirmed) {
-          closeDialog(archiveDialog);
-          throw new Error("未确认当前文件夹目标，已停止提交");
-        }
-        state.confirmedCurrentTarget = currentTargetLabel;
-      }
-      if (skipExisting) {
-        const currentItems = await listFolderItems(sourceFolderFid);
-        for (const folder of currentItems.filter(isFolderItem)) knownExisting.add(folder.file_name);
-        if (knownExisting.has(baseName)) {
-          log(`跳过 ${archiveName}：当前文件夹已存在 ${baseName}`);
-          closeDialog(archiveDialog);
-          await waitFor(
-            () => !document.body.contains(archiveDialog) || !isVisible(archiveDialog),
-            "关闭压缩包预览",
-            5000,
-          ).catch(() => true);
-          return { status: "skipped", reason: `当前文件夹已存在 ${baseName}` };
-        }
-      }
-      log(`${archiveName} 使用已确认的当前文件夹目标：${currentTargetLabel}`);
-    } else {
+
+    const initialTarget = readArchiveTargetLabel(archiveDialog);
+    if (destinationPath || !initialTarget || !destinationMatches(initialTarget, segments)) {
       const change = findExactText(archiveDialog, "更改", "span, div, a");
       if (!change) throw new Error("未找到“更改”目标目录入口");
       clickElement(change);
-      const destinationDialog = await waitFor(
-        () => findDestinationDialog(),
-        "打开目标目录选择框",
-      );
-      const { item: targetItem, segments } = await locateDestination(destinationDialog, destinationPath);
-
-      if (skipExisting) {
+      const destinationDialog = await waitFor(() => findDestinationDialog(), "打开目标目录选择框");
+      const { item: targetItem } = await locateDestination(destinationDialog, targetPath);
+      if (destinationPath && skipExisting) {
         const existingFolders = await readExistingTargetFolders(targetItem);
         for (const folder of existingFolders) knownExisting.add(folder);
         if (knownExisting.has(baseName)) {
-          log(`跳过 ${archiveName}：目标目录已存在 ${baseName}`);
           await cancelDestinationAndCloseArchive(destinationDialog, archiveDialog);
           return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
         }
       }
-
       await selectDestination(destinationDialog, targetItem);
-      refreshedArchiveDialog = await waitFor(
-        () => findArchiveDialog(archiveName),
-        `返回压缩包“${archiveName}”预览`,
-      );
-      const targetTail = segments.at(-1);
-      if (!normalizeText(refreshedArchiveDialog.textContent).includes(`/${targetTail}`)) {
-        throw new Error(`目标路径回显不包含 /${targetTail}，禁止提交`);
-      }
+      refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`);
     }
+    const actualTarget = readArchiveTargetLabel(refreshedArchiveDialog);
+    if (!actualTarget || !destinationMatches(actualTarget, segments)) {
+      throw new Error(`解压目标不一致：期望 ${targetPath}，页面显示 ${actualTarget || "未知"}；禁止提交`);
+    }
+    log(`${archiveName} 已核对解压目标：${actualTarget}`);
 
     const submit = findButton(refreshedArchiveDialog, "解压全部文件");
-    if (!submit) throw new Error("未找到“解压全部文件”按钮");
-    const completionWatcher = deleteArchiveAfterComplete ? watchUnzipCompletion(archiveName) : null;
+    if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
+    ensureUnzipSafe(sourceFolderFid);
+    const taskWatcher = watchUnzipTask(archiveName);
     try {
       clickElement(submit);
-
-      const acknowledged = await waitFor(() => {
-        const currentDialog = findArchiveDialog(archiveName);
-        const pageText = documentTextOutsidePanel();
-        const errorMatch = pageText.match(/(解压失败|压缩包损坏|需要密码|会员.*限制)/);
-        if (errorMatch) throw new Error(errorMatch[1]);
-        return !currentDialog || /解压(任务|中|成功|完成)|已加入/.test(pageText);
-      }, `提交“${archiveName}”`, 20000);
-
-      if (!acknowledged) throw new Error("页面未确认任务已受理");
+      await taskWatcher.waitForAcknowledgement();
       knownExisting.add(baseName);
       let deleted = false;
-      if (completionWatcher) {
+      if (deleteArchiveAfterComplete) {
         log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
         try {
-          await completionWatcher.wait();
-          deleted = await deleteCompletedArchive(
-            archiveName,
-            sourceArchive.fid,
-            sourceFolderFid,
-            log,
-          );
+          await taskWatcher.wait();
+          deleted = await deleteCompletedArchive(archiveName, sourceArchive.fid, sourceFolderFid, log, taskWatcher.checkErrors);
         } catch (error) {
           error.archiveSubmitted = true;
           throw error;
@@ -768,7 +811,7 @@
       }
       return { status: "submitted", deleted };
     } finally {
-      completionWatcher?.cancel();
+      taskWatcher.cancel();
     }
   }
 
@@ -1017,7 +1060,6 @@
       state.skipped = [];
       state.failed = [];
       state.deletedArchives = [];
-      state.confirmedCurrentTarget = "";
       setBusy(true);
       const targetLabel = form.config.destinationPath || "当前文件夹";
       log(
