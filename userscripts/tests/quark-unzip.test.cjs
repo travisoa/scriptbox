@@ -205,7 +205,7 @@ function load(scriptPath, hash = '#/list/all') {
   });
   const names = [
     'currentFolderDestination', 'normalizeDestinationPath', 'destinationMatches',
-    'destinationMatchesAfterSelection', 'readTreeTargetSegments', 'selectDestination',
+    'destinationMatchesAfterSelection', 'readTreeTargetSegments', 'selectDestination', 'locateDestination',
     'listArchiveNames', 'locateArchiveNameElement', 'findArchiveNameElement',
     'readUnzipPageError', 'watchUnzipTask', 'waitFor', 'deleteCompletedArchive',
     'processArchive', 'state', 'StopRequestedError', 'UnzipPageError',
@@ -896,6 +896,68 @@ test(`${variant}: selection that activates a different node is never confirmed`,
   targetImmediateWait(h);
   await assert.rejects(h.api.selectDestination(f.dialog, f.item, targetSegments));
   assert.equal(f.confirmClicks, 0);
+});
+
+// Insert INSIDE the existing target-tree `for (const scriptPath of scriptPaths)`
+// block, where targetSegments, targetFixtureNode and buildTargetFixture exist.
+// These retain the real waitFor and locateDestination implementations. Only the
+// deliberately wrong-root case caps the real wait's deadline to avoid 15 s.
+
+test(`${variant}: destination waits for asynchronous tree/root loading and visible root titles`, async () => {
+  for (const mode of ['treeLate', 'rootLate', 'rootOpacityReveal', 'titleOpacityReveal']) {
+    const h = load(scriptPath);
+    h.evaluate(`Object.assign(globalThis.api, { locateDestination });`);
+    const f = buildTargetFixture(h, targetSegments);
+    const root = f.items[0];
+    if (mode === 'treeLate') f.tree.remove();
+    if (mode === 'rootLate') root.remove();
+    if (mode === 'rootOpacityReveal') root.style.opacity = '0';
+    if (mode === 'titleOpacityReveal') f.titles[0].style.opacity = '0';
+    let revealed = false;
+    const reveal = setTimeout(() => {
+      revealed = true;
+      if (mode === 'treeLate') f.dialog.appendChild(f.tree);
+      if (mode === 'rootLate') f.tree.appendChild(root);
+      if (mode === 'rootOpacityReveal') root.style.opacity = '1';
+      if (mode === 'titleOpacityReveal') f.titles[0].style.opacity = '1';
+    }, 10);
+    try {
+      const result = await h.api.locateDestination(f.dialog, '全部文件/' + targetSegments.join('/'));
+      assert.equal(revealed, true, mode + ': resolution must wait for the visible root');
+      assert.equal(result.item, f.item, mode);
+      assert.deepEqual(Array.from(result.segments), targetSegments, mode);
+      assert.equal(f.confirmClicks, 0, 'locating the destination does not confirm or submit it');
+    } finally { clearTimeout(reveal); }
+  }
+});
+
+test(`${variant}: wrong root times out without confirming another root`, async () => {
+  const h = load(scriptPath);
+  h.evaluate(`
+    Object.assign(globalThis.api, { locateDestination });
+    const actualWaitForWrongRootTest = waitFor;
+    waitFor = (getter, label, timeout = 15000, interval = 250, archiveName = '') =>
+      actualWaitForWrongRootTest(getter, label, Math.min(timeout, 40), Math.min(interval, 2), archiveName);
+  `);
+  const f = buildTargetFixture(h, targetSegments, '错误根目录');
+  await assert.rejects(h.api.locateDestination(f.dialog, '全部文件/' + targetSegments.join('/')), /超时/);
+  assert.equal(f.confirmClicks, 0);
+  assert.equal(f.item.classList.contains('ant-tree-treenode-selected'), false);
+});
+
+test(`${variant}: stop during asynchronous root loading interrupts the real wait immediately`, async () => {
+  const h = load(scriptPath);
+  h.evaluate(`Object.assign(globalThis.api, { locateDestination });`);
+  const f = buildTargetFixture(h, targetSegments);
+  f.items[0].remove();
+  const started = Date.now();
+  const stop = setTimeout(() => { h.api.state.stopRequested = true; }, 10);
+  try {
+    await assert.rejects(h.api.locateDestination(f.dialog, '全部文件/' + targetSegments.join('/')), /停止/);
+    assert.ok(Date.now() - started < 500, 'stop must not wait for the 15 s root-load timeout');
+    assert.equal(f.confirmClicks, 0);
+    assert.equal(f.item.classList.contains('ant-tree-treenode-selected'), false);
+  } finally { clearTimeout(stop); }
 });
 
 test(`${variant}: changed ancestor after selection click invalidates path proof`, async () => {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.7
+// @version      0.5.8
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -633,11 +633,13 @@
 
   async function locateDestination(dialog, destinationPath) {
     const segments = normalizeDestinationPath(destinationPath);
-    const tree = dialog.querySelector('[role="tree"]');
-    if (!tree) throw new Error("未找到目标目录树");
-    let current = [...tree.querySelectorAll(":scope > li[role='treeitem']")]
-      .find((item) => treeItemTitle(item) === "全部文件");
-    if (!current) throw new Error("未找到“全部文件”根节点");
+    // 原生选择框先显示按钮，目录树随后加载/淡入；等待可见根节点再定位。
+    let current = await waitFor(() => {
+      const tree = dialog.querySelector('[role="tree"]');
+      if (!tree || !isVisible(tree)) return null;
+      return [...tree.querySelectorAll(":scope > li[role='treeitem']")]
+        .find((item) => isVisible(item) && treeItemTitle(item) === "全部文件");
+    }, "加载目标目录树“全部文件”根节点", 15000);
     for (const segment of segments) current = await expandTreeItem(current, segment);
     return { item: current, segments };
   }
@@ -856,59 +858,71 @@
     let refreshedArchiveDialog = archiveDialog;
     let confirmedTargetSegments = null;
 
-    const initialTarget = readArchiveTargetLabel(archiveDialog);
-    if (destinationPath || !initialTarget || !destinationMatches(initialTarget, segments)) {
-      const change = findExactText(archiveDialog, "更改", "span, div, a");
-      if (!change) throw new Error("未找到“更改”目标目录入口");
-      clickElement(change);
-      const destinationDialog = await waitFor(() => findDestinationDialog(), "打开目标目录选择框", 15000, 250, archiveName);
-      const { item: targetItem } = await locateDestination(destinationDialog, targetPath);
-      if (destinationPath && skipExisting) {
-        const existingFolders = await readExistingTargetFolders(targetItem);
-        for (const folder of existingFolders) knownExisting.add(folder);
-        if (knownExisting.has(baseName)) {
-          await cancelDestinationAndCloseArchive(destinationDialog, archiveDialog);
-          return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
-        }
-      }
-      confirmedTargetSegments = await selectDestination(destinationDialog, targetItem, segments);
-      refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`, 15000, 250, archiveName);
-    }
-    const actualTarget = readArchiveTargetLabel(refreshedArchiveDialog);
-    if (!actualTarget || !destinationMatchesAfterSelection(actualTarget, segments, confirmedTargetSegments)) {
-      throw new Error(`解压目标不一致：期望 ${targetPath}，页面显示 ${actualTarget || "未知"}；禁止提交`);
-    }
-    log(`${archiveName} 已核对解压目标：${actualTarget}`);
-
-    const submit = findButton(refreshedArchiveDialog, "解压全部文件");
-    if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
-    ensureUnzipSafe(sourceFolderFid, archiveName);
-    const taskWatcher = watchUnzipTask(archiveName);
-    let acknowledged = false;
+    let selectedDestinationDialog = null;
     try {
-      clickElement(submit);
-      await taskWatcher.waitForAcknowledgement();
-      acknowledged = true;
-      knownExisting.add(baseName);
-      // 确认受理后清理仍在前台的预览，下一项才能操作文件列表。
-      await dismissArchivePreview(refreshedArchiveDialog, archiveName);
-      let deleted = false;
-      if (deleteArchiveAfterComplete) {
-        log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
-        try {
-          await taskWatcher.wait();
-          deleted = await deleteCompletedArchive(archiveName, sourceArchive.fid, sourceFolderFid, log, taskWatcher.checkErrors);
-        } catch (error) {
-          error.archiveSubmitted = true;
-          throw error;
+      const initialTarget = readArchiveTargetLabel(archiveDialog);
+      if (destinationPath || !initialTarget || !destinationMatches(initialTarget, segments)) {
+        const change = findExactText(archiveDialog, "更改", "span, div, a");
+        if (!change) throw new Error("未找到“更改”目标目录入口");
+        clickElement(change);
+        const destinationDialog = await waitFor(() => findDestinationDialog(), "打开目标目录选择框", 15000, 250, archiveName);
+        selectedDestinationDialog = destinationDialog;
+        const { item: targetItem } = await locateDestination(destinationDialog, targetPath);
+        if (destinationPath && skipExisting) {
+          const existingFolders = await readExistingTargetFolders(targetItem);
+          for (const folder of existingFolders) knownExisting.add(folder);
+          if (knownExisting.has(baseName)) {
+            await cancelDestinationAndCloseArchive(destinationDialog, archiveDialog);
+            return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
+          }
+        }
+        confirmedTargetSegments = await selectDestination(destinationDialog, targetItem, segments);
+        refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`, 15000, 250, archiveName);
+      }
+      const actualTarget = readArchiveTargetLabel(refreshedArchiveDialog);
+      if (!actualTarget || !destinationMatchesAfterSelection(actualTarget, segments, confirmedTargetSegments)) {
+        throw new Error(`解压目标不一致：期望 ${targetPath}，页面显示 ${actualTarget || "未知"}；禁止提交`);
+      }
+      log(`${archiveName} 已核对解压目标：${actualTarget}`);
+
+      const submit = findButton(refreshedArchiveDialog, "解压全部文件");
+      if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
+      ensureUnzipSafe(sourceFolderFid, archiveName);
+      const taskWatcher = watchUnzipTask(archiveName);
+      let acknowledged = false;
+      try {
+        clickElement(submit);
+        await taskWatcher.waitForAcknowledgement();
+        acknowledged = true;
+        knownExisting.add(baseName);
+        // 确认受理后清理仍在前台的预览，下一项才能操作文件列表。
+        await dismissArchivePreview(refreshedArchiveDialog, archiveName);
+        let deleted = false;
+        if (deleteArchiveAfterComplete) {
+          log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
+          try {
+            await taskWatcher.wait();
+            deleted = await deleteCompletedArchive(archiveName, sourceArchive.fid, sourceFolderFid, log, taskWatcher.checkErrors);
+          } catch (error) {
+            error.archiveSubmitted = true;
+            throw error;
+          }
+        }
+        return { status: "submitted", deleted };
+      } catch (error) {
+        if (acknowledged) error.archiveSubmitted = true;
+        throw error;
+      } finally {
+        taskWatcher.cancel();
+      }
+    } catch (error) {
+      // 受理后的收尾已经尝试过关闭；提交前失败只清理仍可见的本次窗口。
+      if (!error.archiveSubmitted) {
+        for (const dialog of [selectedDestinationDialog, refreshedArchiveDialog]) {
+          if (dialog && document.body.contains(dialog) && isVisible(dialog)) closeDialog(dialog);
         }
       }
-      return { status: "submitted", deleted };
-    } catch (error) {
-      if (acknowledged) error.archiveSubmitted = true;
       throw error;
-    } finally {
-      taskWatcher.cancel();
     }
   }
 
@@ -1801,9 +1815,9 @@
     panel.className = "qbr-collapsed";
     panel.innerHTML = `
       <div class="qbr-head">
-        <div class="qbr-heading" data-userscript-version="0.5.7">
+        <div class="qbr-heading" data-userscript-version="0.5.8">
           <span class="qbr-icon">${ICON_SVG}</span>
-          <span>夸克网盘文件工具箱</span><small style="font-weight:400;color:#6b7280">v0.5.7</small>
+          <span>夸克网盘文件工具箱</span><small style="font-weight:400;color:#6b7280">v0.5.8</small>
         </div>
         <button type="button" class="qbr-toggle" data-keep-enabled="1" title="拖拽移动 / 点击展开收起">
           <span class="qbr-icon">${ICON_SVG}</span>
