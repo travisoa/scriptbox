@@ -24,6 +24,8 @@ function createDom() {
       if (observer.root !== record.target && !observer.root?.contains(record.target)) continue;
       if (record.type === 'characterData' && !observer.options.characterData) continue;
       if (record.type === 'childList' && !observer.options.childList) continue;
+      if (record.type === 'attributes' && (!observer.options.attributes ||
+        (observer.options.attributeFilter && !observer.options.attributeFilter.includes(record.attributeName)))) continue;
       observer.records.push(record);
       if (!observer.queued) {
         observer.queued = true;
@@ -52,12 +54,22 @@ function createDom() {
       this.childNodes = [];
       this.parentElement = null;
       this.attrs = {};
-      this.style = { display: '', visibility: '' };
+      this.style = new Proxy({ display: '', visibility: '', opacity: '' }, {
+        set: (style, key, value) => {
+          const oldValue = style[key];
+          style[key] = String(value);
+          if (oldValue !== style[key]) queueMutation({ type: 'attributes', target: this, attributeName: 'style' });
+          return true;
+        },
+      });
+      this.rect = null;
       this.hidden = false;
       this.dataset = {};
       this.classList = { contains: (value) => (this.attrs.class || '').split(/\s+/).includes(value) };
       this.offsetWidth = 100;
       this.offsetHeight = 20;
+      this.clientWidth = 1280;
+      this.clientHeight = 800;
     }
     get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
     get parentNode() { return this.parentElement; }
@@ -84,7 +96,21 @@ function createDom() {
       queueMutation({ type: 'childList', target: parent, addedNodes: [], removedNodes: [this] });
     }
     contains(node) { return node === this || descendants(this).includes(node); }
-    setAttribute(key, value) { this.attrs[key] = String(value); }
+    setAttribute(key, value) {
+      const oldValue = this.getAttribute(key);
+      this.attrs[key] = String(value);
+      if (key === 'style') for (const declaration of String(value).split(';')) {
+        const [property, ...rest] = declaration.split(':');
+        if (rest.length) this.style[property.trim().replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = rest.join(':').trim();
+      }
+      if (oldValue !== this.attrs[key]) queueMutation({ type: 'attributes', target: this, attributeName: key, oldValue });
+    }
+    removeAttribute(key) {
+      const oldValue = this.getAttribute(key);
+      if (oldValue === null) return;
+      delete this.attrs[key];
+      queueMutation({ type: 'attributes', target: this, attributeName: key, oldValue });
+    }
     getAttribute(key) { return this.attrs[key] ?? null; }
     hasAttribute(key) { return key in this.attrs; }
     matches(selector) {
@@ -95,8 +121,15 @@ function createDom() {
         if (tag && this.tagName !== tag.toUpperCase()) return false;
         const classes = [...s.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
         if (classes.some((name) => !this.classList.contains(name))) return false;
-        for (const match of s.matchAll(/\[([^=\]\s]+)(?:=['"]?([^'"\]]+)['"]?)?\]/g)) {
-          if (!this.hasAttribute(match[1]) || (match[2] !== undefined && this.getAttribute(match[1]) !== match[2])) return false;
+        for (const match of s.matchAll(/\[([^=~^$*\]\s]+)(?:([*^$~]?=)['"]?([^'"\]]+)['"]?)?\]/g)) {
+          const value = this.getAttribute(match[1]);
+          if (value === null) return false;
+          const expected = match[3];
+          if (match[2] === '=' && value !== expected) return false;
+          if (match[2] === '*=' && !value.includes(expected)) return false;
+          if (match[2] === '^=' && !value.startsWith(expected)) return false;
+          if (match[2] === '$=' && !value.endsWith(expected)) return false;
+          if (match[2] === '~=' && !value.split(/\s+/).includes(expected)) return false;
         }
         return Boolean(tag || classes.length || s.includes('['));
       });
@@ -104,8 +137,19 @@ function createDom() {
     closest(selector) { for (let node = this; node; node = node.parentElement) if (node.matches(selector)) return node; return null; }
     querySelectorAll(selector) { return descendants(this).filter((node) => node.nodeType === 1 && node.matches(selector)); }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-    getClientRects() { return this.hidden || this.style.display === 'none' ? [] : [{ width: 100, height: 20 }]; }
-    getBoundingClientRect() { return { x: 0, y: 0, width: 100, height: 20, left: 0, top: 0, right: 100, bottom: 20 }; }
+    getClientRects() {
+      const rect = this.getBoundingClientRect();
+      return rect.width && rect.height ? [rect] : [];
+    }
+    getBoundingClientRect() {
+      for (let node = this; node; node = node.parentElement) {
+        if (node.hidden || node.style.display === 'none') return { x: 0, y: 0, width: 0, height: 0, left: 0, top: 0, right: 0, bottom: 0 };
+      }
+      let positioned = this;
+      while (positioned && !positioned.rect) positioned = positioned.parentElement;
+      const raw = positioned?.rect || { x: 20, y: 100, width: 100, height: 20 };
+      return { ...raw, left: raw.x, top: raw.y, right: raw.x + raw.width, bottom: raw.y + raw.height };
+    }
     scrollIntoView() {}
     click() { this.onClick?.(); }
     dispatchEvent(event) { if (event.type === 'dblclick') this.onDoubleClick?.(); return true; }
@@ -133,7 +177,11 @@ function createDom() {
   return {
     document, MutationObserver, HTMLElement: Element,
     Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4, SHOW_ELEMENT: 1 },
-    getComputedStyle: (node) => ({ display: node.hidden ? 'none' : node.style.display || 'block', visibility: node.style.visibility || 'visible' }),
+    getComputedStyle: (node) => {
+      let visibility = '';
+      for (let parent = node; parent && !visibility; parent = parent.parentElement) visibility = parent.style.visibility;
+      return { display: node.hidden ? 'none' : node.style.display || 'block', visibility: visibility || 'visible', opacity: node.style.opacity === '' ? (node.classList.contains('MessageUserLimit--out-screen--TFf6L-d') ? '0' : '1') : String(node.style.opacity) };
+    },
     element(text, attrs = {}) { const node = new Element(); for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value); node.textContent = text; return node; },
   };
 }
@@ -151,7 +199,7 @@ function load(scriptPath, hash = '#/list/all') {
     Date, Promise, Set, Map, Error, RegExp,
     MouseEvent: class { constructor(type) { this.type = type; } },
     fetch: async () => { throw new Error('Network forbidden in offline regression harness'); },
-    window: { confirm: () => true },
+    window: { confirm: () => true, innerWidth: 1280, innerHeight: 800 },
     GM_getValue: (_key, fallback) => fallback, GM_setValue: () => {},
     localStorage: { getItem: () => null, setItem: () => {} },
   });
@@ -167,6 +215,7 @@ function load(scriptPath, hash = '#/list/all') {
 const task = (h, text, attrs = {}) => h.dom.document.body.appendChild(h.dom.element(text, { class: 'ant-message-notice-content', ...attrs }));
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const message = (value) => String(value?.message ?? value ?? '');
+
 
 for (const scriptPath of scriptPaths) {
   const variant = scriptPath.split('/').pop();
@@ -435,4 +484,141 @@ for (const scriptPath of scriptPaths) {
   });
 }
 
-module.exports = { load, task, flush, scriptPaths, message };
+const banText = '账号涉嫌违规已被封禁，暂时无法使用该功能 申诉';
+
+function nestedNotice(h, kind = 'visible', text = banText) {
+  const wrapper = h.dom.document.createElement('div');
+  wrapper.setAttribute('class', 'MessageUserLimit--message-wrap--SDEytO2');
+  const span = h.dom.document.createElement('span');
+  span.textContent = text;
+  wrapper.appendChild(span);
+  if (kind === 'opacity0') wrapper.style.opacity = '0';
+  if (kind === 'classHidden') wrapper.setAttribute('class', 'MessageUserLimit--message-wrap--SDEytO2 MessageUserLimit--out-screen--TFf6L-d');
+  if (kind === 'ariaHidden') wrapper.setAttribute('aria-hidden', 'true');
+  if (kind === 'displayNone') wrapper.style.display = 'none';
+  if (kind === 'visibilityCollapse') wrapper.style.visibility = 'collapse';
+  if (kind === 'visibilityHidden') wrapper.style.visibility = 'hidden';
+  if (kind === 'offscreenOpacity0') {
+    wrapper.setAttribute('class', 'MessageUserLimit--message-wrap--SDEytO2 MessageUserLimit--out-screen--TFf6L-d');
+    wrapper.style.opacity = '0';
+    wrapper.rect = { x: 400, y: -66, width: 300, height: 72 };
+    span.rect = { x: 412, y: -52, width: 250, height: 20 };
+  }
+  h.dom.document.body.appendChild(wrapper);
+  return wrapper;
+}
+
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+  for (const kind of ['opacity0', 'ariaHidden', 'displayNone', 'visibilityCollapse', 'visibilityHidden', 'offscreenOpacity0']) {
+    test(`${variant}: existing ban under ${kind} parent does not block normal locator`, async () => {
+      const h = load(scriptPath);
+      nestedNotice(h, kind);
+      assert.equal(await h.api.waitFor(() => 'ready', '定位文件', 20, 1), 'ready');
+    });
+    test(`${variant}: fresh ban under ${kind} parent is not latched`, async () => {
+      const h = load(scriptPath);
+      const watcher = h.api.watchUnzipTask('01.zip');
+      nestedNotice(h, kind);
+      await flush();
+      try { assert.doesNotThrow(() => watcher.checkErrors()); }
+      finally { watcher.cancel(); }
+    });
+  }
+  test(`${variant}: visible native account restriction notification blocks locator`, async () => {
+    const h = load(scriptPath);
+    nestedNotice(h);
+    await assert.rejects(h.api.waitFor(() => 'ready', '定位文件', 20, 1), /封禁|无法使用/);
+  });
+  test(`${variant}: fresh visible native account restriction remains latched after disappearing`, async () => {
+    const h = load(scriptPath);
+    const watcher = h.api.watchUnzipTask('01.zip');
+    const notice = nestedNotice(h);
+    await flush();
+    notice.remove();
+    await flush();
+    try { assert.throws(() => watcher.checkErrors(), /封禁|无法使用/); }
+    finally { watcher.cancel(); }
+  });
+
+  for (const attributeKind of ['class', 'style']) {
+    test(`${variant}: existing hidden notice revealed by ${attributeKind} is detected and latched`, async () => {
+      const h = load(scriptPath);
+      const notice = nestedNotice(h, attributeKind === 'class' ? 'classHidden' : 'opacity0');
+      const watcher = h.api.watchUnzipTask('01.zip');
+      try {
+        assert.doesNotThrow(() => watcher.checkErrors(), 'hidden notice must initially be ignored');
+        if (attributeKind === 'class') notice.setAttribute('class', 'MessageUserLimit--message-wrap--SDEytO2');
+        else notice.style.opacity = '1';
+        await flush();
+        notice.remove();
+        await flush();
+        assert.throws(() => watcher.checkErrors(), /封禁|无法使用/, 'newly shown real notice must remain latched after removal');
+      } finally { watcher.cancel(); }
+    });
+  }
+  test(`${variant}: archive filename with error words is not an operation error`, async () => {
+    const h = load(scriptPath);
+    const row = h.dom.document.createElement('div');
+    row.setAttribute('role', 'row');
+    row.appendChild(h.dom.element('解压失败原因说明.zip', { class: 'file-name' }));
+    h.dom.document.body.appendChild(row);
+    assert.equal(await h.api.waitFor(() => 'ready', '定位文件', 20, 1), 'ready');
+  });
+  test(`${variant}: old error of another archive does not block current task`, async () => {
+    const h = load(scriptPath);
+    task(h, '99.zip 解压失败');
+    const watcher = h.api.watchUnzipTask('01.zip');
+    try { assert.doesNotThrow(() => watcher.checkErrors()); }
+    finally { watcher.cancel(); }
+  });
+  test(`${variant}: fresh error of another archive does not block current task`, async () => {
+    const h = load(scriptPath);
+    const watcher = h.api.watchUnzipTask('01.zip');
+    const unrelated = task(h, '999.zip 压缩包损坏');
+    unrelated.style.opacity = '0';
+    await flush();
+    unrelated.style.opacity = '1';
+    await flush();
+    try { assert.doesNotThrow(() => watcher.checkErrors()); }
+    finally { watcher.cancel(); }
+  });
+  test(`${variant}: metadata mutation of old other-archive error does not latch it`, async () => {
+    const h = load(scriptPath);
+    const old = task(h, '99.zip 解压失败');
+    const watcher = h.api.watchUnzipTask('01.zip');
+    old.appendChild(h.dom.element('更新于15:00'));
+    await flush();
+    old.remove();
+    await flush();
+    try { assert.doesNotThrow(() => watcher.checkErrors()); }
+    finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: completion of Chinese-prefixed archive does not acknowledge numeric archive`, async () => {
+    const h = load(scriptPath);
+    const watcher = h.api.watchUnzipTask('01.zip');
+    task(h, '前缀01.zip 解压完成');
+    await flush();
+    try { await assert.rejects(watcher.waitForAcknowledgement(25), /确认|受理|超时/); }
+    finally { watcher.cancel(); }
+  });
+  test(`${variant}: error of Chinese-prefixed archive does not block numeric archive`, async () => {
+    const h = load(scriptPath);
+    const watcher = h.api.watchUnzipTask('01.zip');
+    task(h, '前缀01.zip 压缩包损坏');
+    await flush();
+    try { assert.doesNotThrow(() => watcher.checkErrors()); }
+    finally { watcher.cancel(); }
+  });
+  test(`${variant}: correlated fresh current-archive error blocks current task`, async () => {
+    const h = load(scriptPath);
+    const watcher = h.api.watchUnzipTask('01.zip');
+    task(h, '01.zip 压缩包损坏');
+    await flush();
+    try { assert.throws(() => watcher.checkErrors(), /损坏/); }
+    finally { watcher.cancel(); }
+  });
+}
+
+module.exports = { load, task, flush, scriptPaths, message, nestedNotice };

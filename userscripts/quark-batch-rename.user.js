@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘文件工具箱
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.5.5
+// @version      0.5.6
 // @description  批量重命名、云解压、删除已完成压缩包，以及归集子目录视频。
 // @author       Codex
 // @match        https://pan.quark.cn/*
@@ -342,17 +342,23 @@
 
   function isVisible(element) {
     if (!(element instanceof HTMLElement)) return false;
-    const style = getComputedStyle(element);
+    // 夸克预置的封禁提示仍有尺寸，但祖先 opacity 为 0；不能当成真实报错。
+    for (let current = element; current instanceof HTMLElement; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      if (current.hidden || current.getAttribute("aria-hidden") === "true" ||
+        style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)) return false;
+    }
     const rect = element.getBoundingClientRect();
-    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    return rect.width > 0 && rect.height > 0;
   }
 
-  async function waitFor(getter, label, timeout = 15000, interval = 250) {
+  async function waitFor(getter, label, timeout = 15000, interval = 250, archiveName = "") {
     const deadline = Date.now() + timeout;
     let lastError;
     while (Date.now() < deadline) {
       if (state.stopRequested) throw new StopRequestedError();
-      throwIfUnzipBlocked();
+      throwIfUnzipBlocked(archiveName);
       try {
         const value = getter();
         if (value) return value;
@@ -377,11 +383,11 @@
     ) || null;
   }
 
-  function documentTextOutsidePanel() {
+  function visibleUnzipText(root) {
     const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
       .map((id) => document.getElementById(id)).filter(Boolean);
     const texts = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     while (node) {
       if (!panels.some((panel) => panel.contains(node)) && node.parentElement && isVisible(node.parentElement)) {
@@ -389,7 +395,7 @@
       }
       node = walker.nextNode();
     }
-    return normalizeText(texts.join(" "));
+    return normalizeText(texts.join(""));
   }
 
   class UnzipPageError extends Error {
@@ -405,17 +411,41 @@
     )?.[0] || "";
   }
 
-  function throwIfUnzipBlocked() {
-    const message = readUnzipPageError(documentTextOutsidePanel());
-    if (message) throw new UnzipPageError(`${message}；源压缩包已保留`);
+  const UNZIP_NOTICE_SELECTOR = '.ant-message-notice-content, .ant-notification-notice, [role="alert"], [role="status"], [class*="MessageUserLimit--message-wrap"]';
+
+  function archiveNameMatcher(archiveName) {
+    const escaped = archiveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^\\p{L}\\p{N}_.-])${escaped}(?![A-Za-z0-9_.-])`, "u");
   }
 
-  function ensureUnzipSafe(sourceFolderFid) {
+  function readUnzipMessageError(text, archiveName, allowGeneric) {
+    const mentionsArchive = archiveName && archiveNameMatcher(archiveName).test(text);
+    const remaining = mentionsArchive ? text.replace(archiveNameMatcher(archiveName), "") : text;
+    if (/\.(zip|rar|7z)(?![A-Za-z0-9_.-])/i.test(remaining)) return "";
+    if (!mentionsArchive && !allowGeneric) return "";
+    // 文件名里的“解压失败”等字样不属于任务状态。
+    return readUnzipPageError(mentionsArchive ? text.replaceAll(archiveName, "") : text);
+  }
+
+  function throwIfUnzipBlocked(archiveName = "") {
+    const candidates = [...document.querySelectorAll(UNZIP_NOTICE_SELECTOR)];
+    if (archiveName) {
+      candidates.push(...[...document.querySelectorAll('[role="dialog"]')]
+        .filter((dialog) => isVisible(dialog) && archiveNameMatcher(archiveName).test(visibleUnzipText(dialog))));
+    }
+    for (const element of candidates) {
+      if (!isVisible(element)) continue;
+      const message = readUnzipMessageError(visibleUnzipText(element), archiveName, element.matches(UNZIP_NOTICE_SELECTOR));
+      if (message) throw new UnzipPageError(`页面提示：${message}；源压缩包已保留`);
+    }
+  }
+
+  function ensureUnzipSafe(sourceFolderFid, archiveName = "") {
     if (state.stopRequested) throw new StopRequestedError();
     if (currentFolderFid() !== String(sourceFolderFid)) {
       throw new Error("当前文件夹已切换；为避免操作错误目录，已停止批次");
     }
-    throwIfUnzipBlocked();
+    throwIfUnzipBlocked(archiveName);
   }
 
   function clickElement(element) {
@@ -597,22 +627,12 @@
     let acknowledged = false;
     let completed = false;
     let failure = "";
-    const escapedName = archiveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const archiveNamePattern = new RegExp(`(^|[^A-Za-z0-9_.-])${escapedName}(?![A-Za-z0-9_.-])`);
+    const archiveNamePattern = archiveNameMatcher(archiveName);
     const completionPattern = /(解压已完成|解压成功|已完成解压|云解压完成|解压完成)/;
     const pendingPattern = /(等待.*解压完成|正在解压|解压中|未完成|尚未|没有完成|未解压|解压未完成)/;
     const submissionPattern = /(已加入.{0,12}(解压|任务)|解压任务.{0,12}(已提交|提交成功|创建成功))/;
     const acknowledgementPattern = /(已加入.{0,12}(解压|任务)|解压任务.{0,12}(已提交|提交成功|创建成功)|正在解压|解压中|开始解压|解压成功|解压已完成|解压完成)/;
-    const visibleText = (element) => {
-      const texts = [];
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      let node = walker.nextNode();
-      while (node) {
-        if (node.parentElement && isVisible(node.parentElement)) texts.push(node.nodeValue);
-        node = walker.nextNode();
-      }
-      return normalizeText(texts.join(""));
-    };
+    const visibleText = visibleUnzipText;
     // 旧成功消息即使被重新插入，也不能证明本次任务已经完成。
     const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
       .map((id) => document.getElementById(id)).filter(Boolean);
@@ -623,15 +643,15 @@
     // 没有任务 ID 时，旧的同名完成记录与本次完成无法可靠区分，保留源文件。
     const hadPreviousCompletion = [...previousTexts].some((text) => text.length <= 500 &&
       archiveNamePattern.test(text) && completionPattern.test(text) && !pendingPattern.test(text));
-    const inspectText = (value, statusChanged) => {
+    const inspectText = (value, statusChanged, isNotice) => {
       const text = normalizeText(value);
       if (!text || text.length > 500) return;
-      const error = readUnzipPageError(text);
+      if (!statusChanged || (previousTexts.has(text) && !submissionPattern.test(text))) return;
+      const error = readUnzipMessageError(text, archiveName, isNotice);
       if (error) {
         failure = error;
         return;
       }
-      if (!statusChanged || (previousTexts.has(text) && !submissionPattern.test(text))) return;
       if (hadPreviousCompletion && completionPattern.test(text) && !pendingPattern.test(text)) return;
       const mentionsArchive = archiveNamePattern.test(text);
       // 不把包含多条压缩包任务的祖先文本当成本条任务的完成证据。
@@ -651,25 +671,25 @@
       const inspectNodeContext = (node) => {
         const changedText = node?.nodeType === Node.TEXT_NODE ? normalizeText(node.nodeValue) :
           (node instanceof HTMLElement ? visibleText(node) : "");
-        const statusChanged = acknowledgementPattern.test(changedText) || submissionPattern.test(changedText);
+        const statusChanged = acknowledgementPattern.test(changedText) || submissionPattern.test(changedText) || Boolean(readUnzipPageError(changedText));
         let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
         for (let depth = 0; current && depth < 4; depth += 1) {
           if (current === document.body || currentPanels.some((panel) => panel.contains(current) || current.contains(panel))) return;
-          if (isVisible(current)) inspectText(visibleText(current), statusChanged);
+          if (isVisible(current)) inspectText(visibleText(current), statusChanged, Boolean(current.closest(UNZIP_NOTICE_SELECTOR)));
           current = current.parentElement;
         }
       };
       for (const record of records) {
-        if (record.type === "characterData") inspectNodeContext(record.target);
+        if (record.type === "characterData" || record.type === "attributes") inspectNodeContext(record.target);
         else for (const node of record.addedNodes) inspectNodeContext(node);
       }
     });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden"] });
 
     const checkErrors = () => {
       if (state.stopRequested) throw new StopRequestedError();
-      if (failure) throw new UnzipPageError(`${failure}；源压缩包已保留`);
-      throwIfUnzipBlocked();
+      if (failure) throw new UnzipPageError(`页面提示：${failure}；源压缩包已保留`);
+      throwIfUnzipBlocked(archiveName);
     };
     const waitForOutcome = async (isDone, timeout, timeoutMessage) => {
       const deadline = Date.now() + timeout;
@@ -701,9 +721,9 @@
   }
 
   async function deleteCompletedArchive(archiveName, archiveFid, sourceFolderFid, log, checkTaskErrors = () => {}) {
-    ensureUnzipSafe(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     const archive = await findSourceArchive(archiveName, sourceFolderFid);
-    ensureUnzipSafe(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     checkTaskErrors();
     if (!archive) {
       log(`解压已完成，但源压缩包 ${archiveName} 已不存在，无需删除`);
@@ -725,7 +745,7 @@
     sourceFolderFid,
     log,
   ) {
-    ensureUnzipSafe(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     const baseName = archiveBaseName(archiveName);
     if (knownExisting.has(baseName)) return { status: "skipped", reason: "额外跳过列表或本批次已提交" };
     const segments = destinationPath ? normalizeDestinationPath(destinationPath) : currentFolderDestination(sourceFolderFid);
@@ -735,15 +755,15 @@
       for (const folder of currentItems.filter(isFolderItem)) knownExisting.add(folder.file_name);
       if (knownExisting.has(baseName)) return { status: "skipped", reason: `当前文件夹已存在 ${baseName}` };
     }
-    const archiveElement = await waitFor(() => findArchiveNameElement(archiveName), `定位压缩包“${archiveName}”`);
+    const archiveElement = await waitFor(() => findArchiveNameElement(archiveName), `定位压缩包“${archiveName}”`, 15000, 250, archiveName);
     let sourceArchive = null;
     if (deleteArchiveAfterComplete) {
       sourceArchive = await findSourceArchive(archiveName, sourceFolderFid);
       if (!sourceArchive) throw new Error(`无法确认源压缩包 ${archiveName} 的文件 ID，禁止自动删除`);
     }
-    ensureUnzipSafe(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     doubleClickElement(archiveElement);
-    const archiveDialog = await waitFor(() => findArchiveDialog(archiveName), `打开压缩包“${archiveName}”`, 20000);
+    const archiveDialog = await waitFor(() => findArchiveDialog(archiveName), `打开压缩包“${archiveName}”`, 20000, 250, archiveName);
     let refreshedArchiveDialog = archiveDialog;
 
     const initialTarget = readArchiveTargetLabel(archiveDialog);
@@ -751,7 +771,7 @@
       const change = findExactText(archiveDialog, "更改", "span, div, a");
       if (!change) throw new Error("未找到“更改”目标目录入口");
       clickElement(change);
-      const destinationDialog = await waitFor(() => findDestinationDialog(), "打开目标目录选择框");
+      const destinationDialog = await waitFor(() => findDestinationDialog(), "打开目标目录选择框", 15000, 250, archiveName);
       const { item: targetItem } = await locateDestination(destinationDialog, targetPath);
       if (destinationPath && skipExisting) {
         const existingFolders = await readExistingTargetFolders(targetItem);
@@ -762,7 +782,7 @@
         }
       }
       await selectDestination(destinationDialog, targetItem);
-      refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`);
+      refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`, 15000, 250, archiveName);
     }
     const actualTarget = readArchiveTargetLabel(refreshedArchiveDialog);
     if (!actualTarget || !destinationMatches(actualTarget, segments)) {
@@ -772,7 +792,7 @@
 
     const submit = findButton(refreshedArchiveDialog, "解压全部文件");
     if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
-    ensureUnzipSafe(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     const taskWatcher = watchUnzipTask(archiveName);
     try {
       clickElement(submit);
