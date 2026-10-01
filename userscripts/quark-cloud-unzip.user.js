@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘批量云解压
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.4
+// @version      0.3.5
 // @description  批量提交夸克云解压，支持当前目录目标、完成后删除压缩包和子目录视频归集。
 // @author       Codex
 // @match        https://pan.quark.cn/list*
@@ -720,10 +720,75 @@
       .catch(() => true);
   }
 
-  function watchUnzipTask(archiveName) {
+  function nativeUnzipProgressElements() {
+    const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
+      .map((id) => document.getElementById(id)).filter(Boolean);
+    return [...document.querySelectorAll(".decompressing")].filter((element) =>
+      !element.closest('[role="dialog"]') && !panels.some((panel) => panel.contains(element)));
+  }
+
+  function nativeUnzipProgressText(element) {
+    const tips = element?.querySelector(".progress-tips");
+    return tips && isVisible(element) && isVisible(tips) ? visibleUnzipText(tips) : "";
+  }
+
+  function nativeUnzipProgressCompleted(element) {
+    return /^文件解压成功\s*100%$/.test(nativeUnzipProgressText(element));
+  }
+
+  async function closeUnzipProgress(element, archiveName) {
+    if (!element || !document.body.contains(element)) return;
+    if (!nativeUnzipProgressCompleted(element)) throw new Error("原生解压进度尚未明确成功 100%，禁止关闭并继续批次");
+    const close = element.querySelector(".decompressing-close");
+    if (!close || !isVisible(close)) throw new Error("未找到本次原生解压进度的关闭入口");
+    clickElement(close);
+    await waitFor(() => !document.body.contains(element), `关闭“${archiveName}”已完成解压进度`, 5000, 250, archiveName);
+  }
+
+  async function prepareUnzipProgress(archiveName) {
+    const previous = nativeUnzipProgressElements();
+    if (previous.length > 1 || previous.some((element) => !nativeUnzipProgressCompleted(element))) {
+      throw new Error("页面已有进行中、不可见或状态不明的解压进度；请核查后重试，源压缩包已保留");
+    }
+    for (const element of previous) await closeUnzipProgress(element, archiveName);
+    if (nativeUnzipProgressElements().length) throw new Error("旧解压进度未移除，禁止提交下一项");
+  }
+
+  function watchUnzipTask(archiveName, { nativeProgressReady = false } = {}) {
     let acknowledged = false;
     let completed = false;
     let failure = "";
+    let progressElement = null;
+    const previousProgress = new Set(nativeUnzipProgressElements());
+    if (nativeProgressReady && previousProgress.size) failure = "提交前出现了其他解压进度，无法确认本次任务已受理";
+    const inspectNativeProgress = () => {
+      if (!nativeProgressReady || failure) return;
+      const current = nativeUnzipProgressElements();
+      const fresh = current.filter((element) => !previousProgress.has(element));
+      if (current.length > 1 || (progressElement && fresh.some((element) => element !== progressElement))) {
+        failure = "出现多个或替换的原生解压进度，无法可靠关联本次任务";
+        return;
+      }
+      if (!progressElement && fresh.length === 1 && isVisible(fresh[0])) progressElement = fresh[0];
+      if (!progressElement) return;
+      if (!completed && (!document.body.contains(progressElement) || !isVisible(progressElement))) {
+        failure = "本次原生解压进度在确认完成前消失";
+        return;
+      }
+      if (completed && document.body.contains(progressElement) && !nativeUnzipProgressCompleted(progressElement)) {
+        failure = "本次已完成进度的状态发生变化，无法继续确认解压结果";
+        return;
+      }
+      const text = nativeUnzipProgressText(progressElement);
+      const error = readUnzipPageError(text);
+      if (error) { failure = error; return; }
+      if (nativeUnzipProgressCompleted(progressElement)) {
+        acknowledged = true;
+        completed = true;
+      } else if (/(正在解压|解压中|开始解压|解压文件)/.test(text) && !/(未解压|尚未|等待|未完成)/.test(text)) {
+        acknowledged = true;
+      }
+    };
     const archiveNamePattern = archiveNameMatcher(archiveName);
     const completionPattern = /(解压已完成|解压成功|已完成解压|云解压完成|解压完成)/;
     const pendingPattern = /(等待.*解压完成|正在解压|解压中|未完成|尚未|没有完成|未解压|解压未完成)/;
@@ -755,7 +820,7 @@
       const hasOtherArchive = /\.(zip|rar|7z)(?![A-Za-z0-9_.-])/i.test(text.replace(archiveNamePattern, ""));
       if (hasOtherArchive) return;
       if (mentionsArchive && !pendingPattern.test(text) && completionPattern.test(text)) {
-        completed = true;
+        if (!nativeProgressReady) completed = true;
         acknowledged = true;
       } else if ((mentionsArchive ? acknowledgementPattern : submissionPattern).test(text) &&
         !/(未提交|提交失败|未加入|尚未|等待.*解压完成)/.test(text)) {
@@ -763,6 +828,7 @@
       }
     };
     const observer = new MutationObserver((records) => {
+      inspectNativeProgress();
       const currentPanels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
         .map((id) => document.getElementById(id)).filter(Boolean);
       const inspectNodeContext = (node) => {
@@ -785,6 +851,7 @@
 
     const checkErrors = () => {
       if (state.stopRequested) throw new StopRequestedError();
+      inspectNativeProgress();
       if (failure) throw new UnzipPageError(`页面提示：${failure}；源压缩包已保留`);
       throwIfUnzipBlocked(archiveName);
     };
@@ -799,11 +866,12 @@
     };
     return {
       checkErrors,
+      progressElement() { return progressElement; },
       waitForAcknowledgement(timeout = 20000) {
         return waitForOutcome(() => acknowledged, timeout, "页面未明确确认解压任务已受理；源压缩包已保留，请核查任务列表后再重试");
       },
       wait(timeout = UNZIP_COMPLETION_TIMEOUT_MS) {
-        if (hadPreviousCompletion) {
+        if (hadPreviousCompletion && !nativeProgressReady) {
           return Promise.reject(new Error("页面已有同名压缩包的旧完成记录，无法可靠确认本次任务；源压缩包已保留，请核查任务列表"));
         }
         return waitForOutcome(() => completed, timeout, "等待页面确认解压完成超时；源压缩包已保留");
@@ -868,6 +936,8 @@
       sourceArchive = await findSourceArchive(archiveName, sourceFolderFid);
       if (!sourceArchive) throw new Error(`无法确认源压缩包 ${archiveName} 的文件 ID，禁止自动删除`);
     }
+    await prepareUnzipProgress(archiveName);
+    ensureUnzipSafe(sourceFolderFid, archiveName);
     const archiveElement = await locateArchiveNameElement(archiveName, sourceFolderFid);
     ensureUnzipSafe(sourceFolderFid, archiveName);
     doubleClickElement(archiveElement);
@@ -905,26 +975,29 @@
       const submit = findButton(refreshedArchiveDialog, "解压全部文件");
       if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
       ensureUnzipSafe(sourceFolderFid, archiveName);
-      const taskWatcher = watchUnzipTask(archiveName);
+      const taskWatcher = watchUnzipTask(archiveName, { nativeProgressReady: true });
       let acknowledged = false;
       try {
+        taskWatcher.checkErrors();
         clickElement(submit);
         await taskWatcher.waitForAcknowledgement();
         acknowledged = true;
         knownExisting.add(baseName);
         // 确认受理后清理仍在前台的预览，下一项才能操作文件列表。
         await dismissArchivePreview(refreshedArchiveDialog, archiveName);
+        log(`${archiveName} 已受理，等待本项解压完成后继续下一项`);
+        await taskWatcher.wait();
+        ensureUnzipSafe(sourceFolderFid, archiveName);
+        taskWatcher.checkErrors();
+        // 先确认本次进度组件已关闭；收尾失败时仍保留源文件。
+        await closeUnzipProgress(taskWatcher.progressElement(), archiveName);
+        ensureUnzipSafe(sourceFolderFid, archiveName);
+        taskWatcher.checkErrors();
         let deleted = false;
         if (deleteArchiveAfterComplete) {
-          log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
-          try {
-            await taskWatcher.wait();
-            deleted = await deleteCompletedArchive(archiveName, sourceArchive.fid, sourceFolderFid, log, taskWatcher.checkErrors);
-          } catch (error) {
-            error.archiveSubmitted = true;
-            throw error;
-          }
+          deleted = await deleteCompletedArchive(archiveName, sourceArchive.fid, sourceFolderFid, log, taskWatcher.checkErrors);
         }
+        log(`${archiveName} 解压完成${deleted ? "" : "，源压缩包保留"}`);
         return { status: "submitted", deleted };
       } catch (error) {
         if (acknowledged) error.archiveSubmitted = true;
@@ -1239,7 +1312,7 @@
             if (result.status === "submitted") {
               state.submitted.push(archiveName);
               if (result.deleted) state.deletedArchives.push(archiveName);
-              log(result.deleted ? `已完成并删除源压缩包 ${archiveName}` : `已提交 ${archiveName}`);
+              log(result.deleted ? `已完成并删除源压缩包 ${archiveName}` : `已完成 ${archiveName}`);
             } else {
               state.skipped.push({ archiveName, reason: result.reason });
               log(`已跳过 ${archiveName}：${result.reason}`);

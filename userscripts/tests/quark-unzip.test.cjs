@@ -215,6 +215,21 @@ function load(scriptPath, hash = '#/list/all') {
 }
 
 const task = (h, text, attrs = {}) => h.dom.document.body.appendChild(h.dom.element(text, { class: 'ant-message-notice-content', ...attrs }));
+function completedNativeTask(h) {
+  const element = h.dom.document.createElement('div');
+  element.setAttribute('class', 'decompressing');
+  const tips = h.dom.document.createElement('div');
+  tips.setAttribute('class', 'progress-tips');
+  tips.textContent = '文件解压成功100%';
+  element.appendChild(tips);
+  const close = h.dom.document.createElement('div');
+  close.setAttribute('class', 'decompressing-close');
+  close.onClick = () => element.remove();
+  element.appendChild(close);
+  h.dom.document.body.appendChild(element);
+  return element;
+}
+
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const message = (value) => String(value?.message ?? value ?? '');
 
@@ -462,7 +477,7 @@ for (const scriptPath of scriptPaths) {
     h.ctx.currentTarget = '我的网盘/... /电视剧📺/早春晴朗/4K DV 60帧率 高码率';
     h.ctx.selectCalls = 0;
     h.ctx.submitClicks = 0;
-    h.ctx.emitAcceptance = () => task(h, '01.zip 解压任务已提交');
+    h.ctx.emitAcceptance = () => completedNativeTask(h);
     h.evaluate(`
       findArchiveNameElement = () => globalThis.archiveElement;
       doubleClickElement = () => {};
@@ -473,7 +488,7 @@ for (const scriptPath of scriptPaths) {
       locateDestination = async () => ({ item: {} });
       selectDestination = async (_dialog, _item, expected) => { globalThis.selectCalls += 1; return expected.slice(); };
       findButton = () => globalThis.submit;
-      clickElement = (node) => { if (node === globalThis.submit) { globalThis.submitClicks += 1; globalThis.emitAcceptance(); } };
+      clickElement = (node) => { if (node === globalThis.submit) { globalThis.submitClicks += 1; globalThis.emitAcceptance(); } else node.click(); };
     `);
     const result = await h.api.processArchive('01.zip', '', new Set(), false, false, fid, () => {});
     assert.equal(result.status, 'submitted');
@@ -496,7 +511,7 @@ for (const scriptPath of scriptPaths) {
     h.ctx.currentTarget = routeCase.initial;
     h.ctx.selectedPaths = [];
     h.ctx.submitClicks = 0;
-    h.ctx.emitAcceptance = () => task(h, '01.zip 解压任务已提交，已加入队列');
+    h.ctx.emitAcceptance = () => completedNativeTask(h);
     h.evaluate(`
       findArchiveNameElement = () => globalThis.archiveElement;
       doubleClickElement = () => {};
@@ -507,7 +522,7 @@ for (const scriptPath of scriptPaths) {
       locateDestination = async (_dialog, path) => { globalThis.selectedPaths.push(path); return { item: { chosenPath: path } }; };
       selectDestination = async (_dialog, item) => { globalThis.currentTarget = item.chosenPath; };
       findButton = () => globalThis.submit;
-      clickElement = (node) => { if (node === globalThis.submit) { globalThis.submitClicks += 1; globalThis.emitAcceptance(); } };
+      clickElement = (node) => { if (node === globalThis.submit) { globalThis.submitClicks += 1; globalThis.emitAcceptance(); } else node.click(); };
     `);
     const result = await h.api.processArchive('01.zip', '', new Set(), false, false, sourceFid, () => {});
     assert.equal(result.status, 'submitted');
@@ -976,7 +991,7 @@ test(`${variant}: changed ancestor after selection click invalidates path proof`
 
 // These exercise the shipped processArchive and its real watcher/modal helpers.
 // Quark accepts each request but leaves the preview open until its close button
-// is clicked. No completion message is emitted and automatic deletion is off.
+// is clicked. The task completes through native progress and automatic deletion is off.
 function batchPreviewFixture(scriptPath, closeMode = 'normal') {
   const h = load(scriptPath);
   const opened = [];
@@ -1009,7 +1024,7 @@ function batchPreviewFixture(scriptPath, closeMode = 'normal') {
       submit.textContent = '解压全部文件';
       submit.onClick = () => {
         submitted.push(archiveName);
-        task(h, `${archiveName} 解压任务已提交`);
+        completedNativeTask(h);
         // Deliberately leave the preview mounted and visible after acceptance.
       };
       dialog.appendChild(submit);
@@ -1102,7 +1117,7 @@ function virtualArchiveFixture(scriptPath, options = {}) {
         dialog.appendChild(h.dom.element(`${archiveName} 解压到全部文件更改`));
         const submit = h.dom.document.createElement('button');
         submit.textContent = '解压全部文件';
-        submit.onClick = () => { submitted.push(archiveName); task(h, `${archiveName} 解压任务已提交`); };
+        submit.onClick = () => { submitted.push(archiveName); completedNativeTask(h); };
         dialog.appendChild(submit);
         const close = h.dom.document.createElement('button');
         close.setAttribute('aria-label', 'Close');
@@ -1240,6 +1255,466 @@ for (const scriptPath of scriptPaths) {
     assert.deepEqual(f.opened, ['01.zip', '24.zip']);
     assert.deepEqual(f.submitted, ['01.zip', '24.zip']);
     assert.equal(f.h.dom.document.querySelector('[role="dialog"]'), null);
+  });
+}
+
+// Insert before module.exports. These native widgets deliberately contain no
+// archive name. Their status is correlated only by the explicit prepared flag,
+// a newly mounted unique visible widget, and its exact progress state.
+function nativeProgressFixture(scriptPath) {
+  const h = load(scriptPath);
+  h.evaluate(`Object.assign(globalThis.api, { prepareUnzipProgress, closeUnzipProgress });`);
+  const widgets = [];
+  const widget = (text = '文件解压中35%', mode = '') => {
+    const element = h.dom.document.createElement('div');
+    element.setAttribute('class', 'decompressing');
+    const tips = h.dom.document.createElement('div');
+    tips.setAttribute('class', 'progress-tips');
+    tips.textContent = text;
+    element.appendChild(tips);
+    const close = h.dom.document.createElement('button');
+    close.setAttribute('class', 'close decompressing-close anticon anticon-close');
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '关闭';
+    element.appendChild(close);
+    const result = { element, tips, close, closeClicks: 0 };
+    close.onClick = () => { result.closeClicks += 1; element.remove(); };
+    if (mode === 'opacity0') element.style.opacity = '0';
+    if (mode === 'hiddenTips') tips.style.opacity = '0';
+    if (mode === 'ariaHidden') element.setAttribute('aria-hidden', 'true');
+    h.dom.document.body.appendChild(element);
+    widgets.push(result);
+    return result;
+  };
+  return { h, widgets, widget };
+}
+
+async function nativeHostWaitFor(predicate, label, timeout = 300) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  assert.fail(label + ' did not become ready');
+}
+
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+
+  test(`${variant}: a new native pending widget acknowledges, then success100 completes the same task`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      assert.equal(watcher.progressElement(), current.element);
+      await assert.rejects(watcher.wait(15), /超时|完成|保留/);
+      current.tips.textContent = '文件解压成功100%';
+      await flush();
+      await watcher.wait(40);
+      assert.equal(watcher.progressElement(), current.element);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: a unique new native widget whose first frame is success100 can acknowledge and complete`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget('文件解压成功100%');
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      await watcher.wait(40);
+      assert.equal(watcher.progressElement(), current.element);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: native progress is not evidence unless preparation was explicitly enabled`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip');
+    f.widget('文件解压成功100%');
+    await flush();
+    try { await assert.rejects(watcher.waitForAcknowledgement(15), /确认|受理|超时/); }
+    finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: old native refs remain ignored when their text changes or they are reinserted`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const old = f.widget('文件解压成功100%');
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    old.tips.textContent = '文件解压中35%';
+    await flush();
+    old.element.remove();
+    f.h.dom.document.body.appendChild(old.element);
+    old.tips.textContent = '文件解压成功100%';
+    await flush();
+    try { await assert.rejects(watcher.waitForAcknowledgement(15), /确认|受理|超时/); }
+    finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: hidden native widgets or hidden progress tips never acknowledge`, async () => {
+    for (const mode of ['opacity0', 'hiddenTips', 'ariaHidden']) {
+      const f = nativeProgressFixture(scriptPath);
+      const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+      f.widget('文件解压成功100%', mode);
+      await flush();
+      try { await assert.rejects(watcher.waitForAcknowledgement(15), /确认|受理|超时/); }
+      finally { watcher.cancel(); }
+    }
+  });
+
+  test(`${variant}: two new visible native widgets cannot identify which task completed`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    f.widget('文件解压成功100%');
+    f.widget('文件解压成功100%');
+    await flush();
+    try { await assert.rejects(watcher.waitForAcknowledgement(20)); }
+    finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: adding a second native widget after acknowledgement makes completion ambiguous`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const first = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      first.tips.textContent = '文件解压成功100%';
+      f.widget('文件解压成功100%');
+      await flush();
+      await assert.rejects(watcher.wait(20));
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: a generic success100 notice outside a native widget remains unrelated`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    task(f.h, '文件解压成功100%');
+    await flush();
+    try { await assert.rejects(watcher.waitForAcknowledgement(15), /确认|受理|超时/); }
+    finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: partial success or pending100 never authorizes task completion`, async () => {
+    for (const text of ['文件解压成功99%', '文件解压成功', '文件解压中100%']) {
+      const f = nativeProgressFixture(scriptPath);
+      const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+      f.widget(text);
+      await flush();
+      try { await assert.rejects(watcher.wait(15), /超时|完成|保留/); }
+      finally { watcher.cancel(); }
+    }
+  });
+
+  test(`${variant}: a named generic completion cannot replace completion of the owned native widget`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      task(f.h, '01.zip 解压完成');
+      await flush();
+      await assert.rejects(watcher.wait(15), /超时|完成|保留/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: native failure is latched after its widget disappears`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      current.tips.textContent = '文件解压失败';
+      await flush();
+      current.element.remove();
+      f.widget('文件解压成功100%');
+      await flush();
+      await assert.rejects(watcher.wait(20), /失败|保留/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: stop takes precedence over a newly completed native widget`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      f.h.api.state.stopRequested = true;
+      current.tips.textContent = '文件解压成功100%';
+      await flush();
+      await assert.rejects(watcher.wait(20), /停止/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: preparation closes an old success100 widget before another task begins`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const old = f.widget('文件解压成功100%');
+    await f.h.api.prepareUnzipProgress('01.zip');
+    assert.equal(old.closeClicks, 1);
+    assert.equal(old.element.isConnected, false);
+  });
+
+  test(`${variant}: preparation refuses old running or partial-success progress without closing it`, async () => {
+    for (const [text, mode] of [['文件解压中35%', ''], ['文件解压成功99%', ''], ['文件解压中35%', 'opacity0']]) {
+      const f = nativeProgressFixture(scriptPath);
+      const old = f.widget(text, mode);
+      await assert.rejects(f.h.api.prepareUnzipProgress('01.zip'), /解压|进度|任务|100|完成/);
+      assert.equal(old.closeClicks, 0);
+      assert.equal(old.element.isConnected, true);
+    }
+  });
+
+  test(`${variant}: closing completed native progress acts only on the supplied widget`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const unrelated = f.widget('文件解压成功100%');
+    const current = f.widget('文件解压成功100%');
+    await f.h.api.closeUnzipProgress(current.element, '01.zip');
+    assert.equal(current.closeClicks, 1);
+    assert.equal(current.element.isConnected, false);
+    assert.equal(unrelated.closeClicks, 0);
+    assert.equal(unrelated.element.isConnected, true);
+  });
+
+  test(`${variant}: closing a running native widget never clicks its close control`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const running = f.widget('文件解压中100%');
+    try { await f.h.api.closeUnzipProgress(running.element, '01.zip'); }
+    catch (error) { assert.match(error.message, /解压|进度|完成|成功|100/); }
+    assert.equal(running.closeClicks, 0);
+    assert.equal(running.element.isConnected, true);
+  });
+
+  test(`${variant}: two real processArchive calls wait for native completion even when deletion is disabled`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const { h } = f;
+    const opened = [];
+    const submitted = [];
+    const previewClosed = [];
+    const currentWidgets = new Map();
+    const table = h.dom.document.createElement('table');
+    h.dom.document.body.appendChild(table);
+    h.ctx.nativeDeleteCalls = 0;
+    h.evaluate(`deleteDriveItems = async () => { globalThis.nativeDeleteCalls += 1; };`);
+    for (const archiveName of ['01.zip', '02.zip']) {
+      const row = table.appendChild(h.dom.document.createElement('tr'));
+      const filename = row.appendChild(h.dom.document.createElement('span'));
+      filename.textContent = archiveName;
+      filename.onDoubleClick = () => {
+        opened.push(archiveName);
+        assert.equal(h.dom.document.querySelector('.decompressing'), null, 'the previous progress must close before the next preview opens');
+        const dialog = h.dom.document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.appendChild(h.dom.element(`${archiveName} 解压到全部文件更改`));
+        const submit = dialog.appendChild(h.dom.document.createElement('button'));
+        submit.textContent = '解压全部文件';
+        submit.onClick = () => { submitted.push(archiveName); currentWidgets.set(archiveName, f.widget()); };
+        const close = dialog.appendChild(h.dom.document.createElement('button'));
+        close.setAttribute('aria-label', 'Close');
+        close.textContent = '关闭';
+        close.onClick = () => { previewClosed.push(archiveName); dialog.remove(); };
+        h.dom.document.body.appendChild(dialog);
+      };
+    }
+    const knownExisting = new Set();
+    const results = [];
+    let batchError;
+    let batchDone = false;
+    const batch = (async () => {
+      for (const archiveName of ['01.zip', '02.zip']) {
+        results.push(await h.api.processArchive(archiveName, '', knownExisting, false, false, '0', () => {}));
+      }
+      batchDone = true;
+    })();
+    batch.catch((error) => { batchError = error; });
+    const ready = (predicate) => () => { if (batchError) throw batchError; return predicate(); };
+    await nativeHostWaitFor(ready(() => submitted.length === 1 && previewClosed.length === 1), 'first native pending task');
+    assert.equal(batchDone, false);
+    assert.deepEqual(opened, ['01.zip']);
+    const first = currentWidgets.get('01.zip');
+    first.tips.textContent = '文件解压成功99%';
+    await flush();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(batchDone, false, '99% must not complete an archive');
+    assert.deepEqual(opened, ['01.zip'], 'deletion=false still waits before opening the next archive');
+    first.tips.textContent = '文件解压成功100%';
+    await flush();
+    await nativeHostWaitFor(ready(() => submitted.length === 2 && previewClosed.length === 2), 'second native pending task');
+    assert.equal(first.closeClicks, 1);
+    assert.equal(first.element.isConnected, false);
+    assert.equal(batchDone, false);
+    const second = currentWidgets.get('02.zip');
+    second.tips.textContent = '文件解压成功100%';
+    await flush();
+    await batch;
+    assert.deepEqual(opened, ['01.zip', '02.zip']);
+    assert.deepEqual(submitted, ['01.zip', '02.zip']);
+    assert.equal(second.closeClicks, 1);
+    assert.equal(second.element.isConnected, false);
+    assert.equal(results.length, 2);
+    assert.ok(results.every((result) => result.status === 'submitted' && result.deleted === false));
+    assert.equal(h.ctx.nativeDeleteCalls, 0);
+  });
+}
+
+// Insert before module.exports; reuses nativeProgressFixture from native tests.
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+
+  test(`${variant}: replacing an acknowledged native widget cannot complete the original task`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const original = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      original.element.remove();
+      f.widget('文件解压成功100%');
+      await flush();
+      await assert.rejects(watcher.wait(20), /替换|消失|关联|进度/);
+      assert.equal(watcher.progressElement(), original.element, 'ownership never migrates to the replacement');
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: native ambiguity remains latched after the second widget is removed`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const original = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      const other = f.widget();
+      await flush();
+      other.element.remove();
+      original.tips.textContent = '文件解压成功100%';
+      await flush();
+      await assert.rejects(watcher.wait(20), /多个|替换|关联|进度/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: a lost or hidden owned native widget cannot recover by reappearing at success100`, async () => {
+    for (const mode of ['removed', 'hidden']) {
+      const f = nativeProgressFixture(scriptPath);
+      const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+      const original = f.widget();
+      await flush();
+      try {
+        await watcher.waitForAcknowledgement(40);
+        if (mode === 'removed') original.element.remove();
+        else original.element.style.opacity = '0';
+        await flush();
+        if (mode === 'removed') f.h.dom.document.body.appendChild(original.element);
+        else original.element.style.opacity = '1';
+        original.tips.textContent = '文件解压成功100%';
+        await flush();
+        await assert.rejects(watcher.wait(20), /消失|进度|保留/);
+      } finally { watcher.cancel(); }
+    }
+  });
+
+  test(`${variant}: an old same-name generic completion does not block a newly owned native completion`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    task(f.h, '01.zip 解压完成');
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      current.tips.textContent = '文件解压成功100%';
+      await flush();
+      await watcher.wait(40);
+      assert.equal(watcher.progressElement(), current.element);
+    } finally { watcher.cancel(); }
+  });
+}
+
+// Insert before module.exports; reuses nativeProgressFixture.
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+
+  test(`${variant}: completed native status reverting to pending is latched even if success100 returns`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget('文件解压成功100%');
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      await watcher.wait(40);
+      current.tips.textContent = '文件解压中35%';
+      await flush();
+      assert.throws(() => watcher.checkErrors(), /回退|状态|进度|完成/);
+      current.tips.textContent = '文件解压成功100%';
+      await flush();
+      await assert.rejects(watcher.wait(20), /回退|状态|进度|完成/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: a second hidden native ref causes ambiguity that stays latched after it is removed`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const watcher = f.h.api.watchUnzipTask('01.zip', { nativeProgressReady: true });
+    const current = f.widget();
+    await flush();
+    try {
+      await watcher.waitForAcknowledgement(40);
+      const hidden = f.widget('文件解压成功100%', 'opacity0');
+      await flush();
+      assert.throws(() => watcher.checkErrors(), /多个|替换|关联|进度/);
+      hidden.element.remove();
+      current.tips.textContent = '文件解压成功100%';
+      await flush();
+      await assert.rejects(watcher.wait(20), /多个|替换|关联|进度/);
+    } finally { watcher.cancel(); }
+  });
+
+  test(`${variant}: actual processArchive retains the source when completed native progress cannot close`, async () => {
+    const f = nativeProgressFixture(scriptPath);
+    const { h } = f;
+    h.ctx.nativeDeleteCalls = 0;
+    h.ctx.nativeDeleteReadbacks = 0;
+    h.evaluate(`
+      const originalNativeCloseFailureWait = waitFor;
+      waitFor = (getter, label, timeout = 15000, interval = 250, archiveName = '') =>
+        originalNativeCloseFailureWait(getter, label, Math.min(timeout, 40), Math.min(interval, 2), archiveName);
+      listFolderItems = async () => [{ fid: 'source-01', file_name: '01.zip', file_type: 1, parent_fid: '0' }];
+      deleteDriveItems = async () => { globalThis.nativeDeleteCalls += 1; };
+      waitUntilItemsMissing = async () => { globalThis.nativeDeleteReadbacks += 1; };
+    `);
+    let submitClicks = 0;
+    let native;
+    const table = h.dom.document.body.appendChild(h.dom.document.createElement('table'));
+    const row = table.appendChild(h.dom.document.createElement('tr'));
+    const filename = row.appendChild(h.dom.document.createElement('span'));
+    filename.textContent = '01.zip';
+    filename.onDoubleClick = () => {
+      const dialog = h.dom.document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.appendChild(h.dom.element('01.zip 解压到全部文件更改'));
+      const submit = dialog.appendChild(h.dom.document.createElement('button'));
+      submit.textContent = '解压全部文件';
+      submit.onClick = () => {
+        submitClicks += 1;
+        native = f.widget('文件解压成功100%');
+        native.close.onClick = () => { native.closeClicks += 1; }; // Deliberately remains mounted.
+      };
+      const close = dialog.appendChild(h.dom.document.createElement('button'));
+      close.setAttribute('aria-label', 'Close');
+      close.textContent = '关闭';
+      close.onClick = () => dialog.remove();
+      h.dom.document.body.appendChild(dialog);
+    };
+    await assert.rejects(h.api.processArchive('01.zip', '', new Set(), false, true, '0', () => {}), (error) => {
+      assert.equal(error.archiveSubmitted, true, 'successful acceptance remains recorded after close failure');
+      assert.match(error.message, /关闭.*超时|超时/);
+      return true;
+    });
+    assert.equal(submitClicks, 1);
+    assert.equal(native.closeClicks, 1);
+    assert.equal(native.element.isConnected, true);
+    assert.equal(h.ctx.nativeDeleteCalls, 0, 'native close must finish before any source deletion');
+    assert.equal(h.ctx.nativeDeleteReadbacks, 0);
   });
 }
 
