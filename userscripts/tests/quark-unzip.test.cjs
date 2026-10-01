@@ -180,7 +180,7 @@ function createDom() {
     getComputedStyle: (node) => {
       let visibility = '';
       for (let parent = node; parent && !visibility; parent = parent.parentElement) visibility = parent.style.visibility;
-      return { display: node.hidden ? 'none' : node.style.display || 'block', visibility: visibility || 'visible', opacity: node.style.opacity === '' ? (node.classList.contains('MessageUserLimit--out-screen--TFf6L-d') ? '0' : '1') : String(node.style.opacity) };
+      return { overflowY: node.style.overflowY || 'visible', display: node.hidden ? 'none' : node.style.display || 'block', visibility: visibility || 'visible', opacity: node.style.opacity === '' ? (node.classList.contains('MessageUserLimit--out-screen--TFf6L-d') ? '0' : '1') : String(node.style.opacity) };
     },
     element(text, attrs = {}) { const node = new Element(); for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value); node.textContent = text; return node; },
   };
@@ -205,6 +205,8 @@ function load(scriptPath, hash = '#/list/all') {
   });
   const names = [
     'currentFolderDestination', 'normalizeDestinationPath', 'destinationMatches',
+    'destinationMatchesAfterSelection', 'readTreeTargetSegments', 'selectDestination',
+    'listArchiveNames', 'locateArchiveNameElement', 'findArchiveNameElement',
     'readUnzipPageError', 'watchUnzipTask', 'waitFor', 'deleteCompletedArchive',
     'processArchive', 'state', 'StopRequestedError', 'UnzipPageError',
   ];
@@ -233,15 +235,15 @@ for (const scriptPath of scriptPaths) {
     assert.deepEqual(Array.from(h.api.normalizeDestinationPath('/')), []);
   });
   test(`${variant}: empty target resolves the actual encoded route`, () => {
-    const firstFid = '54c5f33ba1994fa8a301af92590b3740';
-    const sourceFid = 'c45769107a6a46b1a94f1de12ad217b3';
+    const firstFid = '11111111111111111111111111111111';
+    const sourceFid = '22222222222222222222222222222222';
     const h = load(scriptPath, `#/list/all/${firstFid}-${encodeURIComponent('电视剧📺')}/${sourceFid}-${encodeURIComponent('早春 晴朗-a-b')}`);
     assert.deepEqual(Array.from(h.api.currentFolderDestination(sourceFid)), ['电视剧📺', '早春 晴朗-a-b']);
     h.location.hash = '#/list/all';
     assert.deepEqual(Array.from(h.api.currentFolderDestination('0')), []);
   });
   test(`${variant}: route ambiguity or source directory change aborts resolution`, () => {
-    const fid = 'c45769107a6a46b1a94f1de12ad217b3';
+    const fid = '22222222222222222222222222222222';
     for (const hash of ['#/list/recent', '#/list/video', '#/list/all/not-a-folder', `#/list/all/${fid}-%E0%A4%A`]) {
       const h = load(scriptPath, hash);
       assert.throws(() => h.api.currentFolderDestination(fid), undefined, hash);
@@ -447,8 +449,40 @@ for (const scriptPath of scriptPaths) {
     assert.deepEqual(h.ctx.deleteCalls, ['archive-fid']);
     assert.deepEqual(h.ctx.confirmCalls, ['source', 'archive-fid']);
   });
+  test(`${variant}: processArchive accepts observed abbreviation only after full tree selection`, async () => {
+    const fid = '33333333333333333333333333333333';
+    const segments = ['影视专区', '电视剧📺', '早春晴朗', '4K DV 60帧率 高码率'];
+    const h = load(scriptPath, '#/list/all/' + segments.map((segment, i) =>
+      `${i === segments.length - 1 ? fid : 'a'.repeat(32)}-${encodeURIComponent(segment)}`).join('/'));
+    h.ctx.archiveElement = h.dom.element('01.zip');
+    h.ctx.archiveDialog = h.dom.element('01.zip 解压全部文件');
+    h.ctx.destinationDialog = h.dom.element('解压到 新建文件夹 确认');
+    h.ctx.change = h.dom.element('更改');
+    h.ctx.submit = h.dom.element('解压全部文件');
+    h.ctx.currentTarget = '我的网盘/... /电视剧📺/早春晴朗/4K DV 60帧率 高码率';
+    h.ctx.selectCalls = 0;
+    h.ctx.submitClicks = 0;
+    h.ctx.emitAcceptance = () => task(h, '01.zip 解压任务已提交');
+    h.evaluate(`
+      findArchiveNameElement = () => globalThis.archiveElement;
+      doubleClickElement = () => {};
+      findArchiveDialog = () => globalThis.archiveDialog;
+      readArchiveTargetLabel = () => globalThis.currentTarget;
+      findExactText = () => globalThis.change;
+      findDestinationDialog = () => globalThis.destinationDialog;
+      locateDestination = async () => ({ item: {} });
+      selectDestination = async (_dialog, _item, expected) => { globalThis.selectCalls += 1; return expected.slice(); };
+      findButton = () => globalThis.submit;
+      clickElement = (node) => { if (node === globalThis.submit) { globalThis.submitClicks += 1; globalThis.emitAcceptance(); } };
+    `);
+    const result = await h.api.processArchive('01.zip', '', new Set(), false, false, fid, () => {});
+    assert.equal(result.status, 'submitted');
+    assert.equal(h.ctx.selectCalls, 1, 'an abbreviated initial label must force a fresh complete selection');
+    assert.equal(h.ctx.submitClicks, 1);
+  });
+
   const routeCases = [
-    { label: 'source path', sourceFid: 'c45769107a6a46b1a94f1de12ad217b3', hash: `#/list/all/54c5f33ba1994fa8a301af92590b3740-${encodeURIComponent('影视专区')}/c45769107a6a46b1a94f1de12ad217b3-${encodeURIComponent('早春 晴朗')}`, initial: '全部文件/夸克云解压', expected: '全部文件/影视专区/早春 晴朗' },
+    { label: 'source path', sourceFid: '22222222222222222222222222222222', hash: `#/list/all/11111111111111111111111111111111-${encodeURIComponent('影视专区')}/22222222222222222222222222222222-${encodeURIComponent('早春 晴朗')}`, initial: '全部文件/夸克云解压', expected: '全部文件/影视专区/早春 晴朗' },
     { label: 'root with empty preview target', sourceFid: '0', hash: '#/list/all', initial: '', expected: '全部文件' },
   ];
   for (const routeCase of routeCases) test(`${variant}: processArchive selects ${routeCase.label}`, async () => {
@@ -618,6 +652,532 @@ for (const scriptPath of scriptPaths) {
     await flush();
     try { assert.throws(() => watcher.checkErrors(), /损坏/); }
     finally { watcher.cancel(); }
+  });
+}
+
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+const targetSegments = ['影视专区', '电视剧📺', '早春晴朗', '4K DV 60帧率 高码率'];
+const targetCases = [
+  {
+    label: 'observed shortened path is accepted with proof of full selection',
+    text: '我的网盘/... /电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: true,
+  },
+  {
+    label: 'unicode ellipsis and root alias are accepted with exact proof',
+    text: '全部文件/…/电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: true,
+  },
+  {
+    label: 'abbreviated path without selection proof is rejected',
+    text: '我的网盘/.../电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: undefined, matches: false,
+  },
+  {
+    label: 'abbreviated path with empty selection proof is rejected',
+    text: '我的网盘/.../电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: [], matches: false,
+  },
+  {
+    label: 'visible wrong ancestor cannot be hidden by same leaf',
+    text: '我的网盘/其他/.../早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'proof from another ancestor with same leaf is rejected',
+    text: '我的网盘/.../早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: ['其他', '电视剧📺', '早春晴朗', '4K DV 60帧率 高码率'], matches: false,
+  },
+  {
+    label: 'multiple ellipsis segments are rejected',
+    text: '我的网盘/.../电视剧📺/…/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'four dots are not an ellipsis directory marker',
+    text: '我的网盘/..../电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'spaced dots are not an ellipsis directory marker',
+    text: '我的网盘/. . ./电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'embedded dots in ordinary folder name are not a wildcard',
+    text: '我的网盘/影视.../电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'ellipsis must omit at least one complete directory',
+    text: '我的网盘/影视专区/.../电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'leaf directory cannot itself be omitted',
+    text: '我的网盘/影视专区/电视剧📺/早春晴朗/...',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'full conflicting path is rejected even with correct proof',
+    text: '我的网盘/其他/电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'exact full path remains valid without proof',
+    text: '我的网盘/影视专区/电视剧📺/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: undefined, matches: true,
+  },
+  {
+    label: 'exact root remains valid without proof',
+    text: '我的网盘', expected: [], proof: undefined, matches: true,
+  },
+  {
+    label: 'abbreviation cannot turn root into a folder target',
+    text: '我的网盘/...', expected: [], proof: [], matches: false,
+  },
+  {
+    label: 'emoji and internal spaces in visible suffix must match',
+    text: '我的网盘/.../电视剧📺/早春晴朗/4KDV60帧率高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+  {
+    label: 'wrong emoji in suffix is rejected',
+    text: '我的网盘/.../电视剧🎬/早春晴朗/4K DV 60帧率 高码率',
+    expected: targetSegments, proof: targetSegments, matches: false,
+  },
+];
+
+for (const targetCase of targetCases) test(`${variant}: ${targetCase.label}`, () => {
+  const h = load(scriptPath);
+  assert.equal(h.api.destinationMatchesAfterSelection(targetCase.text, targetCase.expected, targetCase.proof), targetCase.matches);
+});
+
+// Patch only :scope > queries on fixture nodes. The shared lightweight selector
+// matcher otherwise treats them as descendant selectors and cannot distinguish
+// the proper root/parent branch from a nested node with the same title.
+function targetFixtureNode(h, tag = 'div', text = '', attrs = {}) {
+  const node = h.dom.document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  node.textContent = text;
+  const fallbackQueryAll = node.querySelectorAll.bind(node);
+  node.querySelectorAll = (selector) => {
+    const results = [];
+    for (const clause of selector.split(',')) {
+      const trimmed = clause.trim();
+      if (!trimmed.startsWith(':scope > ')) { results.push(...fallbackQueryAll(trimmed)); continue; }
+      const rest = trimmed.slice(':scope > '.length);
+      const firstSpace = rest.search(/\s/);
+      const first = firstSpace < 0 ? rest : rest.slice(0, firstSpace);
+      const tail = firstSpace < 0 ? '' : rest.slice(firstSpace).trim();
+      for (const child of node.children.filter((candidate) => candidate.matches(first))) {
+        if (!tail) results.push(child);
+        else if (tail.startsWith('> ')) results.push(...child.querySelectorAll(':scope ' + tail));
+        else results.push(...child.querySelectorAll(tail));
+      }
+    }
+    return [...new Set(results)];
+  };
+  node.querySelector = (selector) => node.querySelectorAll(selector)[0] || null;
+  return node;
+}
+
+function buildTargetFixture(h, segments, rootName = '全部文件') {
+  const dialog = targetFixtureNode(h, 'div', '', { role: 'dialog' });
+  dialog.appendChild(targetFixtureNode(h, 'div', '解压到 新建文件夹'));
+  const tree = dialog.appendChild(targetFixtureNode(h, 'ul', '', { role: 'tree' }));
+  const items = [];
+  const titles = [];
+  const contents = [];
+  let group = tree;
+  for (const name of [rootName, ...segments]) {
+    const item = group.appendChild(targetFixtureNode(h, 'li', '', { role: 'treeitem', class: 'ant-tree-treenode-switcher-open' }));
+    const content = item.appendChild(targetFixtureNode(h, 'span', '', { class: 'ant-tree-node-content-wrapper' }));
+    const title = content.appendChild(targetFixtureNode(h, 'span', name, { class: 'ant-tree-title' }));
+    content.onClick = () => item.setAttribute('class', 'ant-tree-treenode-switcher-open ant-tree-treenode-selected');
+    group = item.appendChild(targetFixtureNode(h, 'ul', '', { role: 'group', class: 'ant-tree-child-tree' }));
+    items.push(item); titles.push(title); contents.push(content);
+  }
+  const confirm = dialog.appendChild(targetFixtureNode(h, 'button', '确认'));
+  const result = { dialog, tree, items, titles, contents, item: items.at(-1), confirm, confirmClicks: 0 };
+  confirm.onClick = () => { result.confirmClicks += 1; dialog.remove(); };
+  h.dom.document.body.appendChild(dialog);
+  return result;
+}
+
+function targetImmediateWait(h) {
+  // Retain selection predicates but avoid spending a real 15 seconds proving
+  // that deliberately wrong selected state never becomes correct.
+  h.evaluate(`waitFor = async (getter, label) => { const value = getter(); if (!value) throw new Error(label + ' failed'); return value; };`);
+}
+
+test(`${variant}: selected node yields the complete path from the proper visible root`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  assert.deepEqual(Array.from(h.api.readTreeTargetSegments(f.dialog, f.item)), targetSegments);
+});
+
+test(`${variant}: root selected node yields empty target segments`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, []);
+  assert.deepEqual(Array.from(h.api.readTreeTargetSegments(f.dialog, f.item)), []);
+});
+
+test(`${variant}: node outside the expected dialog cannot prove selection`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  const other = buildTargetFixture(h, targetSegments);
+  assert.throws(() => h.api.readTreeTargetSegments(f.dialog, other.item));
+});
+
+test(`${variant}: wrong root name cannot prove target path`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments, '其他文件');
+  assert.throws(() => h.api.readTreeTargetSegments(f.dialog, f.item));
+});
+
+test(`${variant}: hidden ancestor cannot prove a visible target path`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  f.items[1].style.opacity = '0';
+  assert.throws(() => h.api.readTreeTargetSegments(f.dialog, f.item));
+});
+
+
+test(`${variant}: invisible tree title alone cannot prove target path`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  f.titles[1].style.opacity = '0';
+  assert.throws(() => h.api.readTreeTargetSegments(f.dialog, f.item));
+});
+
+test(`${variant}: hidden child text inside a visible title cannot prove the requested directory`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  const title = f.titles[1];
+  title.textContent = '';
+  const hidden = title.appendChild(targetFixtureNode(h, 'span', targetSegments[0]));
+  hidden.style.opacity = '0';
+  assert.throws(() => h.api.readTreeTargetSegments(f.dialog, f.item));
+});
+
+test(`${variant}: hidden full-path title cannot repair an incorrectly named ancestor`, () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, ['其他', ...targetSegments.slice(1)]);
+  const hidden = targetFixtureNode(h, 'span', targetSegments[0], { class: 'ant-tree-title', title: '全部文件/' + targetSegments.join('/') });
+  hidden.style.opacity = '0';
+  f.contents[1].appendChild(hidden);
+  targetImmediateWait(h);
+  return assert.rejects(h.api.selectDestination(f.dialog, f.item, targetSegments));
+});
+
+test(`${variant}: selection rejects another ancestor with the same final folder name`, async () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, ['其他', ...targetSegments.slice(1)]);
+  targetImmediateWait(h);
+  await assert.rejects(h.api.selectDestination(f.dialog, f.item, targetSegments));
+  assert.equal(f.confirmClicks, 0);
+});
+
+test(`${variant}: correct selection returns complete path proof only after confirmation`, async () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  targetImmediateWait(h);
+  const proof = await h.api.selectDestination(f.dialog, f.item, targetSegments);
+  assert.deepEqual(Array.from(proof), targetSegments);
+  assert.equal(f.confirmClicks, 1);
+});
+
+test(`${variant}: selection that activates a different node is never confirmed`, async () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  f.contents.at(-1).onClick = () => f.items[0].setAttribute('class', 'ant-tree-treenode-selected');
+  targetImmediateWait(h);
+  await assert.rejects(h.api.selectDestination(f.dialog, f.item, targetSegments));
+  assert.equal(f.confirmClicks, 0);
+});
+
+test(`${variant}: changed ancestor after selection click invalidates path proof`, async () => {
+  const h = load(scriptPath);
+  const f = buildTargetFixture(h, targetSegments);
+  f.contents.at(-1).onClick = () => {
+    f.item.setAttribute('class', 'ant-tree-treenode-selected');
+    f.titles[1].textContent = '其他';
+  };
+  targetImmediateWait(h);
+  await assert.rejects(h.api.selectDestination(f.dialog, f.item, targetSegments));
+  assert.equal(f.confirmClicks, 0);
+});
+
+}
+
+// These exercise the shipped processArchive and its real watcher/modal helpers.
+// Quark accepts each request but leaves the preview open until its close button
+// is clicked. No completion message is emitted and automatic deletion is off.
+function batchPreviewFixture(scriptPath, closeMode = 'normal') {
+  const h = load(scriptPath);
+  const opened = [];
+  const submitted = [];
+  const closed = [];
+  const table = h.dom.document.createElement('table');
+  h.dom.document.body.appendChild(table);
+
+  // Bound only DOM-helper timeouts; retain the real polling, stop and error logic.
+  h.evaluate(`
+    const originalWaitForBatchPreviewTest = waitFor;
+    waitFor = (getter, label, timeout = 15000, interval = 250, archiveName = '') =>
+      originalWaitForBatchPreviewTest(getter, label, Math.min(timeout, 40), Math.min(interval, 2), archiveName);
+  `);
+
+  for (const archiveName of ['01.zip', '02.zip']) {
+    const row = h.dom.document.createElement('tr');
+    const filename = h.dom.document.createElement('span');
+    filename.textContent = archiveName;
+    row.appendChild(filename);
+    table.appendChild(row);
+    filename.onDoubleClick = () => {
+      assert.equal(h.dom.document.querySelector('[role="dialog"]'), null,
+        'the previous archive preview must close before opening the next archive');
+      opened.push(archiveName);
+      const dialog = h.dom.document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.appendChild(h.dom.element(`${archiveName} 解压到全部文件更改`));
+      const submit = h.dom.document.createElement('button');
+      submit.textContent = '解压全部文件';
+      submit.onClick = () => {
+        submitted.push(archiveName);
+        task(h, `${archiveName} 解压任务已提交`);
+        // Deliberately leave the preview mounted and visible after acceptance.
+      };
+      dialog.appendChild(submit);
+      const close = h.dom.document.createElement('button');
+      close.setAttribute('aria-label', 'Close');
+      close.textContent = '关闭';
+      close.onClick = () => {
+        closed.push(archiveName);
+        if (closeMode === 'stop') h.api.state.stopRequested = true;
+        if (closeMode !== 'failedClose') dialog.remove();
+      };
+      dialog.appendChild(close);
+      h.dom.document.body.appendChild(dialog);
+    };
+  }
+  return { h, opened, submitted, closed };
+}
+
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+  test(`${variant}: two accepted archives close retained previews and continue in order`, async () => {
+    const fixture = batchPreviewFixture(scriptPath);
+    const { h } = fixture;
+    const knownExisting = new Set();
+    for (const archiveName of ['01.zip', '02.zip']) {
+      const result = await h.api.processArchive(archiveName, '', knownExisting, false, false, '0', () => {});
+      assert.equal(result.status, 'submitted');
+      assert.equal(result.deleted, false);
+    }
+    assert.deepEqual(fixture.opened, ['01.zip', '02.zip']);
+    assert.deepEqual(fixture.submitted, ['01.zip', '02.zip']);
+    assert.deepEqual(fixture.closed, ['01.zip', '02.zip']);
+    assert.equal(h.dom.document.querySelector('[role="dialog"]'), null);
+  });
+
+  test(`${variant}: stop or failed preview close preserves submission evidence and prevents the next archive`, async () => {
+    for (const closeMode of ['stop', 'failedClose']) {
+      const fixture = batchPreviewFixture(scriptPath, closeMode);
+      const { h } = fixture;
+      const knownExisting = new Set();
+      const runBatch = async () => {
+        for (const archiveName of ['01.zip', '02.zip']) {
+          await h.api.processArchive(archiveName, '', knownExisting, false, false, '0', () => {});
+        }
+      };
+      await assert.rejects(runBatch(), (error) => {
+        assert.equal(error.archiveSubmitted, true, `${closeMode}: the first request was already accepted`);
+        assert.match(error.message, closeMode === 'stop' ? /停止/ : /超时|关闭|预览/);
+        return true;
+      });
+      assert.deepEqual(fixture.opened, ['01.zip'], closeMode);
+      assert.deepEqual(fixture.submitted, ['01.zip'], closeMode);
+      assert.deepEqual(fixture.closed, ['01.zip'], closeMode);
+    }
+  });
+}
+
+// Directory API and virtual scrolling stay within the fake VM.
+function virtualArchiveFixture(scriptPath, options = {}) {
+  const h = load(scriptPath);
+  h.evaluate(`Object.assign(globalThis.api, { listArchiveNames, locateArchiveNameElement, findArchiveNameElement });`);
+  const names = Array.from({ length: 24 }, (_, index) => `${String(index + 1).padStart(2, '0')}.zip`);
+  const apiItems = names.map((file_name, index) => ({ fid: `archive-${index + 1}`, file_name, file_type: 1, parent_fid: '0' }));
+  const opened = [];
+  const submitted = [];
+  const scrolls = [];
+  const container = h.dom.document.createElement('div');
+  container.setAttribute('class', 'ant-table-body');
+  container.style.overflowY = 'auto';
+  container.clientHeight = 380;
+  container.scrollHeight = 480;
+  const table = h.dom.document.createElement('table');
+  container.appendChild(table);
+  h.dom.document.body.appendChild(container);
+  let scrollPosition = Math.max(0, Math.min(100, options.initialScrollTop || 0));
+
+  const render = () => {
+    for (const row of [...table.children]) row.remove();
+    const start = Math.floor(scrollPosition / 20);
+    for (const archiveName of names.slice(start, start + 19)) {
+      if (archiveName === options.omitName) continue;
+      const row = h.dom.document.createElement('tr');
+      row.setAttribute('data-row-key', apiItems[names.indexOf(archiveName)].fid);
+      const filename = h.dom.document.createElement('span');
+      filename.textContent = archiveName;
+      filename.onDoubleClick = () => {
+        opened.push(archiveName);
+        const dialog = h.dom.document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.appendChild(h.dom.element(`${archiveName} 解压到全部文件更改`));
+        const submit = h.dom.document.createElement('button');
+        submit.textContent = '解压全部文件';
+        submit.onClick = () => { submitted.push(archiveName); task(h, `${archiveName} 解压任务已提交`); };
+        dialog.appendChild(submit);
+        const close = h.dom.document.createElement('button');
+        close.setAttribute('aria-label', 'Close');
+        close.textContent = '关闭';
+        close.onClick = () => dialog.remove();
+        dialog.appendChild(close);
+        h.dom.document.body.appendChild(dialog);
+      };
+      row.appendChild(filename);
+      table.appendChild(row);
+    }
+  };
+  Object.defineProperty(container, 'scrollTop', {
+    get: () => scrollPosition,
+    set: (value) => {
+      const oldValue = scrollPosition;
+      scrollPosition = Math.max(0, Math.min(100, Number(value) || 0));
+      scrolls.push(scrollPosition);
+      render();
+      if (scrollPosition !== oldValue) options.onScroll?.(h, scrollPosition);
+    },
+  });
+  container.scrollTo = (value, y) => { container.scrollTop = typeof value === 'object' ? value.top : y; };
+  render();
+  h.ctx.virtualApiItems = apiItems;
+  h.ctx.virtualApiCalls = 0;
+  h.evaluate(`listFolderItems = async () => { globalThis.virtualApiCalls += 1; return globalThis.virtualApiItems; };`);
+  return { h, names, apiItems, container, table, opened, submitted, scrolls };
+}
+
+for (const scriptPath of scriptPaths) {
+  const variant = scriptPath.split('/').pop();
+  test(`${variant}: API scan returns all 24 archives although only 19 rows are mounted`, async () => {
+    const f = virtualArchiveFixture(scriptPath);
+    assert.equal(f.table.children.length, 19);
+    f.h.ctx.virtualApiItems = [
+      ...f.apiItems.slice().reverse(),
+      { fid: 'zip-folder', file_name: 'folder.zip', file_type: 0, parent_fid: '0' },
+      { fid: 'video', file_name: 'video.mp4', file_type: 1, parent_fid: '0' },
+    ];
+    const pattern = /\.(zip|rar|7z)$/gi;
+    pattern.lastIndex = 5;
+    const result = await f.h.api.listArchiveNames(pattern, '0');
+    assert.deepEqual(Array.from(result), f.names);
+    assert.equal(f.h.ctx.virtualApiCalls, 1);
+    assert.equal(f.table.children.length, 19, 'API discovery does not need to mount every row');
+  });
+
+  test(`${variant}: API scan error is reported and never falls back to mounted rows`, async () => {
+    const f = virtualArchiveFixture(scriptPath);
+    f.h.evaluate(`listFolderItems = async () => { throw new Error('API scan denied'); };`);
+    await assert.rejects(f.h.api.listArchiveNames(/\.zip$/i, '0'), /API scan denied/);
+    assert.equal(f.table.children.length, 19);
+    assert.deepEqual(f.submitted, []);
+  });
+
+  test(`${variant}: source change or stop during API discovery invalidates the result`, async () => {
+    for (const mode of ['sourceChange', 'stop']) {
+      const f = virtualArchiveFixture(scriptPath);
+      f.h.ctx.onApiReturn = () => {
+        if (mode === 'stop') f.h.api.state.stopRequested = true;
+        else f.h.location.hash = `#/list/all/${'e'.repeat(32)}-其他目录`;
+      };
+      f.h.evaluate(`listFolderItems = async () => { globalThis.onApiReturn(); return globalThis.virtualApiItems; };`);
+      await assert.rejects(f.h.api.listArchiveNames(/\.zip$/i, '0'), mode === 'stop' ? /停止/ : /目录|文件夹/);
+      assert.deepEqual(f.submitted, []);
+    }
+  });
+
+  test(`${variant}: locator mounts the offscreen tail archive by scrolling only its file table`, async () => {
+    const f = virtualArchiveFixture(scriptPath);
+    assert.equal(f.h.api.findArchiveNameElement('24.zip'), null);
+    const element = await f.h.api.locateArchiveNameElement('24.zip', '0', 100);
+    assert.equal(element.textContent, '24.zip');
+    assert.equal(element.isConnected, true, 'success must not restore scroll and detach the selected row');
+    assert.ok(f.scrolls.some((value) => value > 0));
+    assert.deepEqual(f.opened, [], 'locating alone must not double-click or submit');
+  });
+
+  test(`${variant}: locator resets a bottom window to find an archive above it`, async () => {
+    const f = virtualArchiveFixture(scriptPath, { initialScrollTop: 100 });
+    assert.equal(f.h.api.findArchiveNameElement('01.zip'), null);
+    const element = await f.h.api.locateArchiveNameElement('01.zip', '0', 100);
+    assert.equal(element.textContent, '01.zip');
+    assert.equal(element.isConnected, true);
+    assert.ok(f.scrolls.includes(0));
+  });
+
+  test(`${variant}: an exact archive name in a modal table is excluded from source-row lookup`, () => {
+    const f = virtualArchiveFixture(scriptPath);
+    const dialog = f.h.dom.document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const table = dialog.appendChild(f.h.dom.document.createElement('table'));
+    const row = table.appendChild(f.h.dom.document.createElement('tr'));
+    const filename = row.appendChild(f.h.dom.document.createElement('span'));
+    filename.textContent = '24.zip';
+    f.h.dom.document.body.appendChild(dialog);
+    assert.equal(f.h.api.findArchiveNameElement('24.zip'), null);
+  });
+
+  test(`${variant}: a source change or stop at a scroll boundary prevents accepting the newly mounted row`, async () => {
+    for (const mode of ['sourceChange', 'stop']) {
+      const f = virtualArchiveFixture(scriptPath, { onScroll: (h) => {
+        if (mode === 'stop') h.api.state.stopRequested = true;
+        else h.location.hash = `#/list/all/${'e'.repeat(32)}-其他目录`;
+      } });
+      await assert.rejects(f.h.api.locateArchiveNameElement('24.zip', '0', 100), mode === 'stop' ? /停止/ : /目录|文件夹/);
+      assert.deepEqual(f.opened, []);
+      assert.deepEqual(f.submitted, []);
+    }
+  });
+
+  test(`${variant}: missing virtual row reaches the bottom, restores scroll and never submits`, async () => {
+    const f = virtualArchiveFixture(scriptPath, { initialScrollTop: 40, omitName: '24.zip' });
+    f.h.evaluate(`
+      const originalVirtualLocatorTest = locateArchiveNameElement;
+      locateArchiveNameElement = (name, sourceFid, timeout = 15000) =>
+        originalVirtualLocatorTest(name, sourceFid, Math.min(timeout, 100));
+    `);
+    await assert.rejects(f.h.api.processArchive('24.zip', '', new Set(), false, false, '0', () => {}), /定位|找到|超时|文件/);
+    assert.ok(f.scrolls.includes(100), 'the whole mounted window range was searched');
+    assert.equal(f.container.scrollTop, 40, 'unsuccessful search restores the original scroll position');
+    assert.deepEqual(f.opened, []);
+    assert.deepEqual(f.submitted, []);
+  });
+
+  test(`${variant}: actual processArchive continues from an early row to a virtualized tail row`, async () => {
+    const f = virtualArchiveFixture(scriptPath);
+    const knownExisting = new Set();
+    for (const archiveName of ['01.zip', '24.zip']) {
+      const result = await f.h.api.processArchive(archiveName, '', knownExisting, false, false, '0', () => {});
+      assert.equal(result.status, 'submitted');
+      assert.equal(result.deleted, false);
+    }
+    assert.deepEqual(f.opened, ['01.zip', '24.zip']);
+    assert.deepEqual(f.submitted, ['01.zip', '24.zip']);
+    assert.equal(f.h.dom.document.querySelector('[role="dialog"]'), null);
   });
 }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         夸克网盘批量云解压
 // @namespace    https://local.travisoa.com/userscripts
-// @version      0.3.2
+// @version      0.3.3
 // @description  批量提交夸克云解压，支持当前目录目标、完成后删除压缩包和子目录视频归集。
 // @author       Codex
 // @match        https://pan.quark.cn/list*
@@ -337,6 +337,24 @@
     }
   }
 
+  function destinationMatchesAfterSelection(label, segments, confirmedSegments) {
+    if (destinationMatches(label, segments)) return true;
+    // 省略标签只用于核对本次目录树选择的展示，不用于推断目标目录。
+    if (!Array.isArray(confirmedSegments) || confirmedSegments.length !== segments.length ||
+      !confirmedSegments.every((segment, index) => normalizeText(segment) === normalizeText(segments[index]))) return false;
+    const actual = normalizeDestinationPath(label);
+    const omittedIndexes = actual.map((segment, index) => /^(?:\.\.\.|…)$/u.test(segment) ? index : -1)
+      .filter((index) => index >= 0);
+    if (omittedIndexes.length !== 1) return false;
+    const omittedIndex = omittedIndexes[0];
+    // 末级名称必须明确，省略段至少代表一个目录。
+    if (omittedIndex === actual.length - 1 || actual.length > segments.length) return false;
+    const prefix = actual.slice(0, omittedIndex);
+    const suffix = actual.slice(omittedIndex + 1);
+    return prefix.every((segment, index) => normalizeText(segment) === normalizeText(segments[index])) &&
+      suffix.every((segment, index) => normalizeText(segment) === normalizeText(segments[segments.length - suffix.length + index]));
+  }
+
   function isVisible(element) {
     if (!(element instanceof HTMLElement)) return false;
     // 夸克预置的封禁提示仍有尺寸，但祖先 opacity 为 0；不能当成真实报错。
@@ -508,30 +526,24 @@
     if (close) clickElement(close);
   }
 
-  function listArchiveNames(pattern) {
-    const names = [];
-    const seen = new Set();
-    for (const row of document.querySelectorAll("tr")) {
-      if (!isVisible(row)) continue;
-      const cells = [...row.querySelectorAll(":scope > td, :scope > [role='cell']")];
-      const filenameCell = cells[1] || row;
-      const textNode = matchingArchiveTextNode(filenameCell, pattern);
-      const archiveName = normalizeText(textNode?.nodeValue);
-      if (archiveName && !seen.has(archiveName)) {
-        seen.add(archiveName);
-        names.push(archiveName);
-      }
-    }
-    return names;
+  async function listArchiveNames(pattern, sourceFolderFid = currentFolderFid()) {
+    // 文件列表是虚拟渲染，DOM 只包含部分行；通过现有目录接口获取完整批次。
+    const items = await listFolderItems(sourceFolderFid);
+    ensureUnzipSafe(sourceFolderFid);
+    return items.filter((item) => {
+      pattern.lastIndex = 0;
+      return !isFolderItem(item) && pattern.test(item.file_name);
+    }).map((item) => item.file_name)
+      .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
   }
 
   function findArchiveNameElement(archiveName) {
     const titled = [...document.querySelectorAll("tr [title]")].find(
-      (element) => isVisible(element) && normalizeText(element.getAttribute("title")) === archiveName,
+      (element) => !element.closest('[role="dialog"]') && isVisible(element) && normalizeText(element.getAttribute("title")) === archiveName,
     );
     if (titled) return titled;
     for (const row of document.querySelectorAll("tr")) {
-      if (!isVisible(row)) continue;
+      if (!isVisible(row) || row.closest('[role="dialog"]')) continue;
       const cells = [...row.querySelectorAll(":scope > td, :scope > [role='cell']")];
       const filenameCell = cells[1] || row;
       const textNode = matchingArchiveTextNode(filenameCell, /$^/, archiveName);
@@ -540,10 +552,45 @@
     return null;
   }
 
+  async function locateArchiveNameElement(archiveName, sourceFolderFid, timeout = 15000) {
+    ensureUnzipSafe(sourceFolderFid, archiveName);
+    const current = findArchiveNameElement(archiveName);
+    if (current) return current;
+    const panels = ["codex-quark-batch-rename", "codex-quark-cloud-unzip"]
+      .map((id) => document.getElementById(id)).filter(Boolean);
+    const containers = [...document.querySelectorAll(".ant-table-body")].filter((element) =>
+      isVisible(element) && !element.closest('[role="dialog"]') &&
+      !panels.some((panel) => panel.contains(element)) && element.querySelector("tr") &&
+      /^(auto|scroll)$/.test(getComputedStyle(element).overflowY) && element.clientHeight > 0);
+    if (containers.length !== 1) {
+      return waitFor(() => findArchiveNameElement(archiveName), `定位压缩包“${archiveName}”`, timeout, 250, archiveName);
+    }
+    const container = containers[0];
+    const originalScrollTop = container.scrollTop;
+    const deadline = Date.now() + timeout;
+    let found = false;
+    try {
+      container.scrollTop = 0;
+      while (Date.now() < deadline) {
+        await sleep(150);
+        ensureUnzipSafe(sourceFolderFid, archiveName);
+        const element = findArchiveNameElement(archiveName);
+        if (element) { found = true; return element; }
+        const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (container.scrollTop >= maximum) break;
+        container.scrollTop = Math.min(maximum, container.scrollTop + Math.max(1, container.clientHeight * 0.75));
+      }
+      throw new Error(`当前目录列表中未找到压缩包“${archiveName}”；已停止，禁止提交`);
+    } finally {
+      if (!found && currentFolderFid() === String(sourceFolderFid) && document.body.contains(container)) {
+        container.scrollTop = originalScrollTop;
+      }
+    }
+  }
+
   function treeItemTitle(item) {
-    return normalizeText(
-      item.querySelector(":scope > .ant-tree-node-content-wrapper .ant-tree-title")?.textContent,
-    );
+    const title = item.querySelector(":scope > .ant-tree-node-content-wrapper .ant-tree-title");
+    return title && isVisible(title) ? visibleUnzipText(title) : "";
   }
 
   function directTreeChildren(item) {
@@ -552,7 +599,7 @@
   }
 
   function directChildByTitle(item, title) {
-    return directTreeChildren(item).find((child) => treeItemTitle(child) === title) || null;
+    return directTreeChildren(item).find((child) => isVisible(child) && treeItemTitle(child) === title) || null;
   }
 
   function isTreeItemExpanded(item) {
@@ -604,7 +651,37 @@
     return { item: current, segments };
   }
 
-  async function selectDestination(dialog, item) {
+  function readTreeTargetSegments(dialog, item) {
+    const tree = dialog?.querySelector('[role="tree"]');
+    if (!tree || !isVisible(dialog) || !isVisible(tree) || !tree.contains(item) || !isVisible(item)) {
+      throw new Error("目标目录不在当前可见目录树内，禁止提交");
+    }
+    const titles = [];
+    let current = item;
+    while (current && tree.contains(current)) {
+      const content = current.querySelector(":scope > .ant-tree-node-content-wrapper");
+      const titleNode = content?.querySelector(".ant-tree-title");
+      const title = titleNode && isVisible(titleNode) ? visibleUnzipText(titleNode) : "";
+      if (!content || !isVisible(current) || !isVisible(content) || !isVisible(titleNode) || !title) throw new Error("目标目录树路径不可见或名称缺失，禁止提交");
+      titles.unshift(title);
+      if (current.parentElement === tree) break;
+      current = current.parentElement?.closest('li[role="treeitem"]');
+    }
+    if (!current || current.parentElement !== tree || titles[0] !== "全部文件") {
+      throw new Error("目标目录树缺少完整根路径，禁止提交");
+    }
+    return titles.slice(1);
+  }
+
+  async function selectDestination(dialog, item, expectedSegments) {
+    const validateSelection = () => {
+      const actual = readTreeTargetSegments(dialog, item);
+      if (!destinationMatches(`全部文件/${actual.join("/")}`, expectedSegments)) {
+        throw new Error("目录树选中路径与预期不一致，禁止提交");
+      }
+      return actual;
+    };
+    validateSelection();
     const content = item.querySelector(":scope > .ant-tree-node-content-wrapper");
     if (!content) throw new Error("未找到最终目录名称");
     clickElement(content);
@@ -612,10 +689,12 @@
       () => item.classList.contains("ant-tree-treenode-selected"),
       `选择目录“${treeItemTitle(item)}”`,
     );
+    const confirmedSegments = validateSelection();
     const confirm = findButton(dialog, "确认");
     if (!confirm) throw new Error("未找到目录确认按钮");
     clickElement(confirm);
     await waitFor(() => !findDestinationDialog(), "关闭目标目录选择框");
+    return confirmedSegments;
   }
 
   async function readExistingTargetFolders(targetItem) {
@@ -731,6 +810,13 @@
     };
   }
 
+  async function dismissArchivePreview(dialog, archiveName) {
+    if (!document.body.contains(dialog) || !isVisible(dialog)) return;
+    closeDialog(dialog);
+    await waitFor(() => !document.body.contains(dialog) || !isVisible(dialog),
+      `关闭压缩包“${archiveName}”预览`, 5000, 250, archiveName);
+  }
+
   async function findSourceArchive(archiveName, sourceFolderFid) {
     const items = await listFolderItems(sourceFolderFid, { allowStop: false });
     return items.find(
@@ -775,16 +861,17 @@
       for (const folder of currentItems.filter(isFolderItem)) knownExisting.add(folder.file_name);
       if (knownExisting.has(baseName)) return { status: "skipped", reason: `当前文件夹已存在 ${baseName}` };
     }
-    const archiveElement = await waitFor(() => findArchiveNameElement(archiveName), `定位压缩包“${archiveName}”`, 15000, 250, archiveName);
     let sourceArchive = null;
     if (deleteArchiveAfterComplete) {
       sourceArchive = await findSourceArchive(archiveName, sourceFolderFid);
       if (!sourceArchive) throw new Error(`无法确认源压缩包 ${archiveName} 的文件 ID，禁止自动删除`);
     }
+    const archiveElement = await locateArchiveNameElement(archiveName, sourceFolderFid);
     ensureUnzipSafe(sourceFolderFid, archiveName);
     doubleClickElement(archiveElement);
     const archiveDialog = await waitFor(() => findArchiveDialog(archiveName), `打开压缩包“${archiveName}”`, 20000, 250, archiveName);
     let refreshedArchiveDialog = archiveDialog;
+    let confirmedTargetSegments = null;
 
     const initialTarget = readArchiveTargetLabel(archiveDialog);
     if (destinationPath || !initialTarget || !destinationMatches(initialTarget, segments)) {
@@ -801,11 +888,11 @@
           return { status: "skipped", reason: `目标目录已存在 ${baseName}` };
         }
       }
-      await selectDestination(destinationDialog, targetItem);
+      confirmedTargetSegments = await selectDestination(destinationDialog, targetItem, segments);
       refreshedArchiveDialog = await waitFor(() => findArchiveDialog(archiveName), `返回压缩包“${archiveName}”预览`, 15000, 250, archiveName);
     }
     const actualTarget = readArchiveTargetLabel(refreshedArchiveDialog);
-    if (!actualTarget || !destinationMatches(actualTarget, segments)) {
+    if (!actualTarget || !destinationMatchesAfterSelection(actualTarget, segments, confirmedTargetSegments)) {
       throw new Error(`解压目标不一致：期望 ${targetPath}，页面显示 ${actualTarget || "未知"}；禁止提交`);
     }
     log(`${archiveName} 已核对解压目标：${actualTarget}`);
@@ -814,10 +901,14 @@
     if (!submit || submit.disabled) throw new Error("“解压全部文件”按钮不可用");
     ensureUnzipSafe(sourceFolderFid, archiveName);
     const taskWatcher = watchUnzipTask(archiveName);
+    let acknowledged = false;
     try {
       clickElement(submit);
       await taskWatcher.waitForAcknowledgement();
+      acknowledged = true;
       knownExisting.add(baseName);
+      // 确认受理后清理仍在前台的预览，下一项才能操作文件列表。
+      await dismissArchivePreview(refreshedArchiveDialog, archiveName);
       let deleted = false;
       if (deleteArchiveAfterComplete) {
         log(`${archiveName} 已受理，等待页面确认解压完成后再删除源压缩包`);
@@ -830,6 +921,9 @@
         }
       }
       return { status: "submitted", deleted };
+    } catch (error) {
+      if (acknowledged) error.archiveSubmitted = true;
+      throw error;
     } finally {
       taskWatcher.cancel();
     }
@@ -947,14 +1041,21 @@
       saveConfig({ ...loadConfig(), deleteArchiveAfterComplete: deleteArchiveInput.checked });
     });
 
-    panel.querySelector('[data-action="scan"]').addEventListener("click", () => {
+    panel.querySelector('[data-action="scan"]').addEventListener("click", async () => {
+      if (state.running) return;
+      state.running = true;
+      state.stopRequested = false;
+      setBusy(true);
       try {
         const { pattern } = readForm();
-        const archives = listArchiveNames(pattern);
+        const archives = await listArchiveNames(pattern);
         setStatus(`当前目录识别到 ${archives.length} 个压缩包`);
         log(archives.length ? `扫描结果：${archives.join("、")}` : "未识别到压缩包，请确认当前位于源目录");
       } catch (error) {
-        setStatus(error.message);
+        setStatus(`扫描压缩包失败：${error.message}`);
+      } finally {
+        state.running = false;
+        setBusy(false);
       }
     });
 
@@ -1055,8 +1156,22 @@
         return;
       }
 
-      const archives = listArchiveNames(form.pattern);
+      const sourceFolderFid = currentFolderFid();
+      state.running = true;
+      state.stopRequested = false;
+      setBusy(true);
+      let archives;
+      try {
+        archives = await listArchiveNames(form.pattern, sourceFolderFid);
+      } catch (error) {
+        setStatus(`读取压缩包失败：${error.message}`);
+        state.running = false;
+        setBusy(false);
+        return;
+      }
       if (!archives.length) {
+        state.running = false;
+        setBusy(false);
         setStatus("当前目录没有识别到压缩包");
         return;
       }
@@ -1067,13 +1182,14 @@
           "页面确认每个任务解压完成后，对应源压缩包会被移入回收站。\n\n是否继续？",
         )
       ) {
+        state.running = false;
+        setBusy(false);
         return;
       }
 
       const knownExisting = new Set(
         form.config.extraSkip.split(/[,，\n]/).map((name) => name.trim()).filter(Boolean),
       );
-      const sourceFolderFid = currentFolderFid();
       state.running = true;
       state.stopRequested = false;
       state.submitted = [];
